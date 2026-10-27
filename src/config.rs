@@ -1,8 +1,10 @@
 //! Settings for building a graph.
 
 use std::{
+    fmt,
     ops::{BitOr, BitOrAssign},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
@@ -241,6 +243,65 @@ impl BitOrAssign for EdgeKinds {
     }
 }
 
+/// Reads `hide`, `leaf` or `follow`, as written in `oxchart.toml` or on the command line.
+impl FromStr for Externals {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "hide" => Ok(Self::Hide),
+            "leaf" => Ok(Self::Leaf),
+            "follow" => Ok(Self::Follow),
+            _ => Err(Error::UnknownValue {
+                value: s.into(),
+                expected: "hide, leaf, follow",
+            }),
+        }
+    }
+}
+
+/// The name of each kind, as written in `oxchart.toml`, on the command line and in output.
+const KIND_NAMES: [(EdgeKinds, &str); 5] = [
+    (EdgeKinds::STATIC, "static"),
+    (EdgeKinds::DYNAMIC, "dynamic"),
+    (EdgeKinds::TYPE_ONLY, "type"),
+    (EdgeKinds::RE_EXPORT, "re-export"),
+    (EdgeKinds::REQUIRE, "require"),
+];
+
+/// Reads one kind by name, like `static` or `re-export`, or `all` for every kind.
+impl FromStr for EdgeKinds {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        if s == "all" {
+            return Ok(Self::ALL);
+        }
+        KIND_NAMES
+            .iter()
+            .find(|(_, name)| *name == s)
+            .map(|(kind, _)| *kind)
+            .ok_or_else(|| Error::UnknownValue {
+                value: s.into(),
+                expected: "static, dynamic, type, re-export, require, all",
+            })
+    }
+}
+
+/// Writes the names of the kinds, like `static, re-export`, or `none`.
+impl fmt::Display for EdgeKinds {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_empty() {
+            return f.write_str("none");
+        }
+        let mut names = KIND_NAMES.iter().filter(|(kind, _)| self.contains(*kind));
+        if let Some((_, first)) = names.next() {
+            f.write_str(first)?;
+        }
+        names.try_for_each(|(_, name)| write!(f, ", {name}"))
+    }
+}
+
 /// Compiled `include`/`exclude` globs.
 #[derive(Debug)]
 pub(crate) struct PathFilter {
@@ -365,5 +426,35 @@ mod tests {
         let mut c = config();
         c.root = Some("does/not/exist".into());
         assert!(matches!(c.root_dir(), Err(Error::Root { .. })));
+    }
+
+    #[test]
+    fn externals_from_text() {
+        assert_eq!("hide".parse::<Externals>().unwrap(), Externals::Hide);
+        assert_eq!("leaf".parse::<Externals>().unwrap(), Externals::Leaf);
+        assert_eq!("follow".parse::<Externals>().unwrap(), Externals::Follow);
+        let err = "skip".parse::<Externals>().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "unknown value `skip`, expected one of: hide, leaf, follow"
+        );
+    }
+
+    #[test]
+    fn edge_kinds_from_text_and_back() {
+        let parse = |s: &str| s.parse::<EdgeKinds>().unwrap();
+        assert_eq!(parse("static"), EdgeKinds::STATIC);
+        assert_eq!(parse("dynamic"), EdgeKinds::DYNAMIC);
+        assert_eq!(parse("type"), EdgeKinds::TYPE_ONLY);
+        assert_eq!(parse("re-export"), EdgeKinds::RE_EXPORT);
+        assert_eq!(parse("require"), EdgeKinds::REQUIRE);
+        assert_eq!(parse("all"), EdgeKinds::ALL);
+        assert!("statik".parse::<EdgeKinds>().is_err());
+
+        assert_eq!(
+            (EdgeKinds::STATIC | EdgeKinds::RE_EXPORT).to_string(),
+            "static, re-export"
+        );
+        assert_eq!(EdgeKinds::NONE.to_string(), "none");
     }
 }
