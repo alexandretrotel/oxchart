@@ -1,5 +1,5 @@
 [package]
-name = "oxgraph"
+name = "oxchart"
 version = "0.1.0"
 edition = "2024"
 authors = ["Alexandre Trotel"]
@@ -13,7 +13,7 @@ default = ["cli"]
 cli = ["dep:clap", "dep:anyhow"]
 
 [[bin]]
-name = "oxgraph"
+name = "oxchart"
 path = "src/main.rs"
 required-features = ["cli"]
 
