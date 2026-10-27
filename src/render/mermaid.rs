@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
 use super::{Renderer, render_error};
-#[cfg(feature = "svg")]
+#[cfg(any(feature = "svg", feature = "ascii"))]
 use crate::error::Error;
 use crate::{
     config::EdgeKinds,
@@ -36,6 +36,21 @@ pub struct Mermaid {}
 impl Renderer for Mermaid {
     fn render(&self, graph: &ModuleGraph, out: &mut dyn Write) -> Result<()> {
         write(graph, out).map_err(render_error)
+    }
+    /// The chart drawn with text characters by [merman](https://crates.io/crates/merman).
+    /// Needs the `ascii` feature; without it, this returns an error.
+    #[cfg(feature = "ascii")]
+    fn render_ascii(&self, graph: &ModuleGraph) -> Result<String> {
+        use merman::{AsciiRequest, OperationControl, RenderOutput, RenderRequest};
+
+        let chart = self.render_to_string(graph)?;
+        let request =
+            RenderRequest::ascii(&chart, OperationControl::new(), AsciiRequest::default());
+        match merman::Renderer::new().render(request) {
+            Ok(RenderOutput::Ascii(Some(drawing))) => Ok(drawing.text),
+            Ok(_) => Err(Error::Render("merman returned no drawing".into())),
+            Err(err) => Err(Error::Render(err.into())),
+        }
     }
 }
 

@@ -172,7 +172,6 @@ pub(crate) mod tests {
 
     use super::*;
 
-    /// A small project in a fresh temp folder: `(path, content)` pairs.
     pub(crate) fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
         let root = std::env::temp_dir().join(format!("oxchart-test-{name}"));
         let _ = fs::remove_dir_all(&root);
@@ -218,14 +217,12 @@ pub(crate) mod tests {
             r.resolve(&from, "./utils", false),
             local(&root, "src/utils/index.ts")
         );
-        // TypeScript ESM code writes the extension the file will have once compiled.
         assert_eq!(r.resolve(&from, "./a.js", false), local(&root, "src/a.ts"));
         assert_eq!(r.resolve(&from, "./b.js", false), local(&root, "src/b.tsx"));
         assert_eq!(
             r.resolve(&from, "./c.mjs", false),
             local(&root, "src/c.mts")
         );
-        // Relative to the importing file, not the root.
         let nested = root.join("src/utils/index.ts");
         assert_eq!(r.resolve(&nested, "../a", false), local(&root, "src/a.ts"));
     }
@@ -312,12 +309,10 @@ pub(crate) mod tests {
             r.resolve(&from, "pkg", true),
             package(&root, "node_modules/pkg/node.cjs", "pkg")
         );
-        // `default` matches without being listed in `conditions`.
         assert_eq!(
             r.resolve(&from, "web", false),
             package(&root, "node_modules/web/d.js", "web")
         );
-        // No `exports`: `module` wins over `main`.
         assert_eq!(
             r.resolve(&from, "old", false),
             package(&root, "node_modules/old/esm.js", "old")
@@ -357,7 +352,6 @@ pub(crate) mod tests {
         let root = project("not-schemes", &[("src/index.ts", "")]);
         let r = resolver();
         let from = root.join("src/index.ts");
-        // A Windows drive letter, and names that only contain a colon later on.
         assert!(r.resolve(&from, "C:/nope.ts", false).is_err());
         assert!(r.resolve(&from, "./a:b", false).is_err());
         assert!(r.resolve(&from, "@scope/a:b", false).is_err());
@@ -366,8 +360,6 @@ pub(crate) mod tests {
     #[cfg(unix)]
     #[test]
     fn package_names_come_from_package_json() {
-        // Yarn's pnpm linker stores packages under `node_modules/.store`: the folder
-        // name says nothing about the package, its `package.json` does.
         let root = project(
             "package-names",
             &[
@@ -403,7 +395,6 @@ pub(crate) mod tests {
                 "react"
             )
         );
-        // The nearest `package.json` has no name: fall back to the folder name.
         assert_eq!(
             r.resolve(&from, "dual", false),
             package(&root, "node_modules/dual/dist/cjs/index.js", "dual")

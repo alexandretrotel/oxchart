@@ -10,8 +10,9 @@ categories = ["development-tools", "command-line-utilities"]
 
 [features]
 default = ["cli"]
-cli = ["svg", "dep:clap", "dep:anyhow", "dep:serde", "dep:toml", "dep:opener"]
-svg = ["dep:merman"]
+cli = ["svg", "ascii", "dep:clap", "dep:anyhow", "dep:serde", "dep:toml", "dep:opener"]
+svg = ["dep:merman", "merman/svg"]
+ascii = ["dep:merman", "merman/ascii"]
 
 [[bin]]
 name = "oxchart"
@@ -34,5 +35,5 @@ oxc_resolver = "11.24.3"
 rayon = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"], optional = true }
 toml = { version = "1.1.8", optional = true }
-merman = { version = "0.9.2", default-features = false, features = ["diagram-flowchart", "svg"], optional = true }
+merman = { version = "0.9.2", default-features = false, features = ["diagram-flowchart"], optional = true }
 opener = { version = "0.9.0", optional = true }

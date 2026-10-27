@@ -21,6 +21,10 @@ impl Renderer for Text {
     fn render(&self, graph: &ModuleGraph, out: &mut dyn Write) -> Result<()> {
         write(graph, out).map_err(render_error)
     }
+    /// The usual output: it is already plain text.
+    fn render_ascii(&self, graph: &ModuleGraph) -> Result<String> {
+        self.render_to_string(graph)
+    }
 }
 
 fn write(graph: &ModuleGraph, out: &mut dyn Write) -> io::Result<()> {

@@ -463,7 +463,6 @@ mod tests {
         (from.into(), to.into(), kinds)
     }
 
-    /// `index` imports `a` twice and requires `b`; `a` and `b` import each other.
     fn cycle(name: &str) -> PathBuf {
         project(
             name,
@@ -506,7 +505,6 @@ mod tests {
         c.max_depth = Some(1);
         let g = build(&c).unwrap();
         assert_eq!(names(&g), ["src/a.ts", "src/b.ts", "src/index.ts"]);
-        // `a` and `b` are shown but not opened, so their imports are missing.
         assert_eq!(g.edges().len(), 2);
     }
 
@@ -551,7 +549,6 @@ mod tests {
                 "node:fs",
             ]
         );
-        // Followed packages are opened like your own files.
         assert!(edges(&g).contains(&edge(
             "node_modules/react/index.js",
             "node_modules/react/jsx-runtime.js",
@@ -592,7 +589,6 @@ mod tests {
         c.include = vec!["src/**".into()];
         c.exclude = vec!["**/*.test.ts".into(), "src/index.ts".into()];
         let g = build(&c).unwrap();
-        // The entrypoint is kept even though it is excluded; `index.ts` is outside `src/**`.
         assert_eq!(names(&g), ["src/a.ts", "src/index.ts"]);
     }
 

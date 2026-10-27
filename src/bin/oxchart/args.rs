@@ -20,6 +20,7 @@ Examples:
   oxchart src/index.ts --max-depth 2      Stop two imports away from the start
   oxchart src/index.ts -o graph.svg       Save the picture instead of opening it
   oxchart src/index.ts -o graph.mmd       Mermaid chart, for GitHub or mermaid.live
+  oxchart src/index.ts --format ascii     Draw the chart in the terminal
   oxchart src/index.ts | grep react       One line per import, when piped
 
 Settings can also live in oxchart.toml, in this folder or a parent one.
@@ -35,6 +36,8 @@ pub enum Format {
     Mermaid,
     /// A picture of the Mermaid flowchart
     Svg,
+    /// The Mermaid flowchart drawn with text, for the terminal
+    Ascii,
 }
 
 impl Format {
@@ -52,6 +55,7 @@ impl Format {
             Self::Text => Text::default().render(graph, out)?,
             Self::Mermaid => Mermaid::default().render(graph, out)?,
             Self::Svg => out.write_all(Mermaid::default().render_svg(graph)?.as_bytes())?,
+            Self::Ascii => out.write_all(Mermaid::default().render_ascii(graph)?.as_bytes())?,
         }
         Ok(())
     }

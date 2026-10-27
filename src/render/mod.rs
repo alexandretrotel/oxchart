@@ -48,6 +48,17 @@ pub trait Renderer {
         self.render(graph, &mut out)?;
         String::from_utf8(out).map_err(|err| Error::Render(err.into()))
     }
+    /// A drawing of the graph made of plain text, to read in a terminal.
+    ///
+    /// Optional: renderers without one keep this default, which returns an error.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Render`] if the renderer has no text drawing, or fails to make one.
+    fn render_ascii(&self, graph: &ModuleGraph) -> Result<String> {
+        let _ = graph;
+        Err(Error::Render("this renderer has no text drawing".into()))
+    }
 }
 
 /// Wraps a write error, for renderers.
@@ -63,7 +74,6 @@ mod tests {
         resolve::tests::project,
     };
 
-    /// `index` imports `a` and `react`, `a` re-exports `b`, and `lone` imports nothing.
     fn graph(name: &str) -> ModuleGraph {
         let root = project(
             name,
@@ -147,8 +157,6 @@ mod tests {
         let out = Mermaid::default()
             .render_to_string(&crate::build_graph(&config).unwrap())
             .unwrap();
-        // Plain imports keep the default look; the rest get a color, and imports that
-        // do not load at startup are dashed.
         assert!(out.contains("  m4 -->|static| m0\n"), "{out}");
         assert!(out.contains("  m4 -.->|dynamic| m1\n"), "{out}");
         assert!(out.contains("  m4 -.->|type| m2\n"), "{out}");
@@ -188,6 +196,38 @@ mod tests {
         assert!(svg.contains("react"));
         assert!(!svg.contains("<foreignObject"));
         assert!(svg.contains("<text"));
+    }
+
+    #[test]
+    fn ascii() {
+        let graph = graph("render-ascii");
+        let text = Text::default();
+        assert_eq!(
+            text.render_ascii(&graph).unwrap(),
+            text.render_to_string(&graph).unwrap()
+        );
+
+        struct NoAscii;
+        impl Renderer for NoAscii {
+            fn render(&self, _: &ModuleGraph, _: &mut dyn Write) -> Result<()> {
+                Ok(())
+            }
+        }
+        assert!(matches!(
+            NoAscii.render_ascii(&graph),
+            Err(crate::Error::Render(_))
+        ));
+    }
+
+    #[cfg(feature = "ascii")]
+    #[test]
+    fn mermaid_ascii() {
+        let drawing = Mermaid::default()
+            .render_ascii(&graph("render-mermaid-ascii"))
+            .unwrap();
+        assert!(!drawing.starts_with("flowchart"), "{drawing}");
+        assert!(drawing.contains("src/index.ts"), "{drawing}");
+        assert!(drawing.contains("react"), "{drawing}");
     }
 
     #[test]

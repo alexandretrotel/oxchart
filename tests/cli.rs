@@ -1,12 +1,9 @@
-//! Runs the `oxchart` command on small projects and checks what it prints.
-
 use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Output},
 };
 
-/// A small project in a fresh temp folder: `(path, content)` pairs.
 fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
     let root = std::env::temp_dir().join(format!("oxchart-cli-{name}"));
     let _ = fs::remove_dir_all(&root);
@@ -103,7 +100,6 @@ fn settings_file_is_found_from_a_subfolder_and_flags_win() {
 
     let out = oxchart(&sub, &["-q", "--no-config", "index.ts"]);
     assert!(out.status.success(), "{}", stderr(&out));
-    // Without the file, the root is the current folder.
     assert!(stdout(&out).contains("index.ts -> a.ts (static)"));
 }
 
@@ -183,7 +179,6 @@ fn output_extension_picks_the_format() {
         let written = fs::read_to_string(dir.join(file)).unwrap();
         assert!(written.starts_with(start), "{file}: {written:.80}");
     }
-    // `--format` wins over the extension.
     let out = oxchart(
         &dir,
         &["src/index.ts", "-q", "-o", "graph.svg", "--format", "text"],
@@ -199,9 +194,18 @@ fn output_extension_picks_the_format() {
 #[test]
 fn piped_output_is_text_and_svg_can_be_asked_for() {
     let dir = app("piped");
-    // Tests run with stdout piped, like `oxchart ... | grep`: no picture is opened.
     assert!(stdout(&oxchart(&dir, &["src/index.ts", "-q"])).starts_with("src/a.ts"));
     let out = oxchart(&dir, &["src/index.ts", "-q", "--format", "svg"]);
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(stdout(&out).starts_with("<svg"));
+}
+
+#[test]
+fn ascii_format_draws_in_the_terminal() {
+    let dir = app("ascii");
+    let out = oxchart(&dir, &["src/index.ts", "-q", "--format", "ascii"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let drawing = stdout(&out);
+    assert!(drawing.contains("│ src/index.ts"), "{drawing}");
+    assert!(drawing.contains("re-export"), "{drawing}");
 }
