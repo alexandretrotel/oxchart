@@ -1,50 +1,66 @@
 //! Command-line flags.
 
-use std::path::{PathBuf, absolute};
+use std::{
+    io::Write,
+    path::{Path, PathBuf, absolute},
+};
 
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use oxchart::{
-    Config, EdgeKinds, Externals,
+    Config, EdgeKinds, Externals, ModuleGraph,
     render::{Mermaid, Renderer, Text},
 };
 use serde::Deserialize;
 
 const EXAMPLES: &str = "\
 Examples:
-  oxchart src/index.ts                    Graph of your own files
+  oxchart src/index.ts                    Open a picture of your own files
   oxchart src/main.ts --externals leaf    Also show packages, one node each
   oxchart src/index.ts --max-depth 2      Stop two imports away from the start
-  oxchart src/index.ts -o graph.txt       Write the graph to a file
-  oxchart src/index.ts --format mermaid   Mermaid chart, for GitHub or mermaid.live
+  oxchart src/index.ts -o graph.svg       Save the picture instead of opening it
+  oxchart src/index.ts -o graph.mmd       Mermaid chart, for GitHub or mermaid.live
+  oxchart src/index.ts | grep react       One line per import, when piped
 
 Settings can also live in oxchart.toml, in this folder or a parent one.
 Flags win over the file.";
 
-/// See which files of a JavaScript or TypeScript project import which.
-///
-/// Prints one line per import to the terminal. Warnings and a summary go to stderr,
-/// so piping the output stays clean.
 /// How to write the graph. Set with `--format` or `format` in oxchart.toml.
-#[derive(Debug, Clone, Copy, Default, ValueEnum, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Format {
     /// One line per import
-    #[default]
     Text,
     /// A Mermaid flowchart
     Mermaid,
+    /// A picture of the Mermaid flowchart
+    Svg,
 }
 
 impl Format {
-    pub fn renderer(self) -> Box<dyn Renderer> {
-        match self {
-            Self::Text => Box::new(Text::default()),
-            Self::Mermaid => Box::new(Mermaid::default()),
+    /// The format a file name asks for: `.svg`, `.mmd` or `.mermaid`, else text.
+    pub fn of(path: &Path) -> Self {
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("svg") => Self::Svg,
+            Some("mmd" | "mermaid") => Self::Mermaid,
+            _ => Self::Text,
         }
+    }
+
+    pub fn write(self, graph: &ModuleGraph, out: &mut dyn Write) -> Result<()> {
+        match self {
+            Self::Text => Text::default().render(graph, out)?,
+            Self::Mermaid => Mermaid::default().render(graph, out)?,
+            Self::Svg => out.write_all(Mermaid::default().render_svg(graph)?.as_bytes())?,
+        }
+        Ok(())
     }
 }
 
+/// See which files of a JavaScript or TypeScript project import which.
+///
+/// In a terminal, draws the graph as a picture and opens it. When the output is piped
+/// or saved with -o, writes it instead. Warnings and a summary go to stderr.
 #[derive(Debug, Parser)]
 #[command(version, after_help = EXAMPLES)]
 pub struct Args {
@@ -101,11 +117,12 @@ pub struct Args {
     )]
     pub edges: Option<Vec<EdgeKinds>>,
 
-    /// How to write the graph [default: text]
-    #[arg(long, value_name = "FORMAT")]
+    /// How to write the graph [default: svg, opened, in a terminal; text when piped;
+    /// from the extension with -o]
+    #[arg(long, value_name = "FORMAT", verbatim_doc_comment)]
     pub format: Option<Format>,
 
-    /// Write the graph to this file instead of the terminal
+    /// Save the graph to this file; .svg, .mmd and .txt pick the format
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
 
