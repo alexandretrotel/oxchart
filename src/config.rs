@@ -1,4 +1,4 @@
-//! Graph-building settings.
+//! Settings for building a graph.
 
 use std::{
     ops::{BitOr, BitOrAssign},
@@ -11,36 +11,69 @@ use crate::error::{Error, Result};
 
 /// Settings for [`build_graph`](crate::build_graph).
 ///
-/// [`Config::new`] gives defaults tuned for a clean graph of your own runtime code:
-/// static imports, re-exports and `require` only, `node_modules` hidden, no depth limit.
+/// Start from [`Config::new`] and change only the fields you need. The defaults give a
+/// graph of your own code as it runs:
+///
+/// - the imports that load code when the app starts, but not `import()` or `import type`
+/// - no npm packages or Node built-ins
+/// - no depth limit
+///
+/// ```
+/// let mut config = oxchart::Config::new(["src/main.ts"]);
+/// config.exclude.push("**/*.test.ts".into());
+/// ```
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Config {
-    /// Files the walk starts from. Relative paths are joined to the root.
+    /// The files to start from, usually your app's main file.
+    ///
+    /// Relative paths start from [`root`](Self::root).
     pub entrypoints: Vec<PathBuf>,
-    /// Base for relative entrypoints and globs. `None` means the current directory.
+    /// The project folder. Relative paths in this config start from here.
+    ///
+    /// `None` uses the current directory.
     pub root: Option<PathBuf>,
-    /// Extensions tried, in order, for extensionless specifiers (`./a` -> `./a.ts`).
+    /// File extensions to try, in order, when an import leaves one out.
+    ///
+    /// With the default list, `import './a'` finds `./a.ts` before `./a.js`.
     pub extensions: Vec<String>,
-    /// `tsconfig.json` whose `paths` (and legacy `baseUrl`) define import aliases.
+    /// A `tsconfig.json` that defines import shortcuts.
+    ///
+    /// Set this if your code uses aliases from `compilerOptions.paths`, like
+    /// `import x from '@/utils'`. The older `baseUrl` option works too.
     pub tsconfig: Option<PathBuf>,
-    /// `package.json` `exports`/`imports` conditions. `import` or `require` is added per edge;
-    /// `default` always matches.
+    /// Which build of a package to pick when it ships several.
+    ///
+    /// Some packages publish different files for Node, for browsers, and so on, keyed
+    /// by name in their `package.json` `exports`. The default, `["node"]`, picks the
+    /// Node build. For a browser app, add `"browser"`.
+    ///
+    /// `"import"` or `"require"` is added for you, depending on how each file imports
+    /// the package. `"default"` always matches, so you never need to list it.
     pub conditions: Vec<String>,
-    /// Globs relative to the root. Empty means every file.
+    /// Keep only files matching these patterns, like `src/**`.
+    ///
+    /// Patterns start from [`root`](Self::root). `*` stays in one folder, `**` crosses
+    /// folders. Empty keeps every file. Entrypoints are always kept.
     pub include: Vec<String>,
-    /// Globs relative to the root. A file matching both lists is excluded.
+    /// Leave out files matching these patterns, like `**/*.test.ts`.
+    ///
+    /// A left-out file is not shown and its own imports are not followed. This wins over
+    /// [`include`](Self::include).
     pub exclude: Vec<String>,
-    /// Max import hops from an entrypoint. `None` is unlimited, `Some(0)` keeps entrypoints only.
+    /// How many imports away from an entrypoint to go.
+    ///
+    /// `Some(1)` shows the entrypoints and the files they import directly. `Some(0)`
+    /// shows the entrypoints only. `None` has no limit.
     pub max_depth: Option<usize>,
-    /// What to do with packages and Node builtins.
+    /// What to show for npm packages and Node built-ins. See [`Externals`].
     pub externals: Externals,
-    /// Which import kinds become edges.
+    /// Which kinds of import to show and follow. See [`EdgeKinds`].
     pub edge_kinds: EdgeKinds,
 }
 
 impl Config {
-    /// Default settings for the given entrypoints.
+    /// Settings with sensible defaults, starting from these files.
     pub fn new<I, P>(entrypoints: I) -> Self
     where
         I: IntoIterator<Item = P>,
@@ -64,7 +97,14 @@ impl Config {
         }
     }
 
-    /// Checks the settings without touching the file system.
+    /// Checks the settings without reading any file.
+    ///
+    /// [`build_graph`](crate::build_graph) calls this for you.
+    ///
+    /// # Errors
+    ///
+    /// Fails if there are no entrypoints, or a pattern in `include` or `exclude` is not
+    /// a valid glob.
     pub fn validate(&self) -> Result<()> {
         if self.entrypoints.is_empty() {
             return Err(Error::NoEntrypoints);
@@ -111,47 +151,74 @@ fn glob_set(patterns: &[String]) -> Result<GlobSet> {
     })
 }
 
-/// What happens to imports that leave your source: `react`, `node:fs`, `fs`.
+/// What to show for imports of npm packages (`react`) and Node built-ins (`node:fs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum Externals {
-    /// Drop them. The graph shows only your code.
+    /// Leave them out. The graph shows only your own files. This is the default.
     #[default]
     Hide,
-    /// Keep one node per package or builtin, never parsed.
+    /// Show each package as one node, without looking inside it.
+    ///
+    /// `react` and `react/jsx-runtime` both point to a single `react` node.
     Leaf,
-    /// Walk into `node_modules` like local code. Graphs get big fast.
+    /// Look inside packages too, following their imports like your own files.
+    ///
+    /// Graphs get very big, so pair this with [`Config::max_depth`].
     Follow,
 }
 
-/// A set of import kinds. One edge carries every kind that links its two modules.
+/// Kinds of import, combined with `|`.
+///
+/// Used in two places: [`Config::edge_kinds`] says which kinds to follow, and each
+/// arrow in the graph says how one file imports the other. A file that imports
+/// another in two ways gets one arrow with both kinds.
+///
+/// ```
+/// use oxchart::EdgeKinds;
+///
+/// let kinds = EdgeKinds::STATIC | EdgeKinds::DYNAMIC;
+/// assert!(kinds.contains(EdgeKinds::DYNAMIC));
+/// assert!(!kinds.contains(EdgeKinds::REQUIRE));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EdgeKinds(u8);
 
 impl EdgeKinds {
+    /// No kind.
     pub const NONE: Self = Self(0);
-    /// `import x from './a'`, `import './a'`.
+    /// A plain import: `import x from './a'` or `import './a'`.
     pub const STATIC: Self = Self(1);
-    /// `import('./a')`.
+    /// An import that loads later, when the code runs: `import('./a')`.
+    ///
+    /// Off by default. Often used to load a page or a heavy feature on demand.
     pub const DYNAMIC: Self = Self(1 << 1);
-    /// `import type`, `export type ... from`, or an import whose specifiers are all `type`.
+    /// An import of types only: `import type { A } from './a'`.
+    ///
+    /// Off by default: TypeScript removes these imports when it compiles, so they never
+    /// load. `import { type A, type B }` counts too, but `import { type A, b }` is a plain
+    /// import because `b` is real code.
     pub const TYPE_ONLY: Self = Self(1 << 2);
-    /// `export ... from './a'`, `export * from './a'`.
+    /// Passing another file's exports along: `export * from './a'`.
+    ///
+    /// Typical in `index.ts` files that gather a folder's exports in one place.
     pub const RE_EXPORT: Self = Self(1 << 3);
-    /// `require('./a')`.
+    /// A CommonJS import: `require('./a')`.
     pub const REQUIRE: Self = Self(1 << 4);
+    /// Every kind.
     pub const ALL: Self = Self(0b1_1111);
 
-    /// True if every kind in `other` is in `self`.
+    /// `true` if every kind in `other` is also in `self`.
     pub const fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
     }
 
-    /// True if `self` and `other` share a kind.
+    /// `true` if `self` and `other` have at least one kind in common.
     pub const fn intersects(self, other: Self) -> bool {
         self.0 & other.0 != 0
     }
 
+    /// `true` if there is no kind at all.
     pub const fn is_empty(self) -> bool {
         self.0 == 0
     }
