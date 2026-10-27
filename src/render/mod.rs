@@ -138,6 +138,8 @@ mod tests {
         assert!(svg.starts_with("<svg"), "{}", &svg[..svg.len().min(200)]);
         assert!(svg.contains("src/index.ts"));
         assert!(svg.contains("react"));
+        assert!(!svg.contains("<foreignObject"));
+        assert!(svg.contains("<text"));
     }
 
     #[test]

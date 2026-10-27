@@ -65,7 +65,10 @@ impl Mermaid {
     pub fn render_svg(&self, graph: &ModuleGraph) -> Result<String> {
         use merman::{OperationControl, RenderOutput, RenderRequest, SvgRequest};
 
-        let chart = self.render_to_string(graph)?;
+        let chart = format!(
+            "%%{{init: {{\"htmlLabels\": false, \"flowchart\": {{\"wrappingWidth\": 600}}}}}}%%\n{}",
+            self.render_to_string(graph)?
+        );
         let request = RenderRequest::svg(&chart, OperationControl::new(), SvgRequest::default());
         match merman::Renderer::new().render(request) {
             Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.into_parts().0),
