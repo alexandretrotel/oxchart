@@ -108,17 +108,65 @@ mod tests {
         assert_eq!(
             out,
             "flowchart LR\n\
-             \x20 m0[\"src/a.ts\"]\n\
-             \x20 m1[\"src/b.ts\"]\n\
-             \x20 m2[\"src/index.ts\"]\n\
-             \x20 m3[\"src/lone.ts\"]\n\
-             \x20 m4([\"react\"])\n\
-             \x20 m5[[\"node:fs\"]]\n\
+             \x20 m0[\"src/a.ts\"]:::file\n\
+             \x20 m1[\"src/b.ts\"]:::file\n\
+             \x20 m2[\"src/index.ts\"]:::file\n\
+             \x20 m3[\"src/lone.ts\"]:::file\n\
+             \x20 m4([\"react\"]):::package\n\
+             \x20 m5[[\"node:fs\"]]:::runtime\n\
              \x20 m0 -->|type, re-export| m1\n\
              \x20 m2 -->|static| m0\n\
              \x20 m2 -->|static| m4\n\
-             \x20 m2 -->|static| m5\n"
+             \x20 m2 -->|static| m5\n\
+             \x20 linkStyle 0 stroke:#CC79A7,color:#CC79A7\n\
+             \x20 classDef file fill:#E8F1FA,stroke:#0072B2,color:#1B1B1B\n\
+             \x20 classDef package fill:#FFF4DE,stroke:#E69F00,color:#1B1B1B\n\
+             \x20 classDef runtime fill:#EEEEEE,stroke:#777777,color:#1B1B1B\n"
         );
+    }
+
+    #[test]
+    fn mermaid_edge_styles() {
+        use crate::EdgeKinds as K;
+        let root = project(
+            "render-edge-styles",
+            &[
+                (
+                    "index.ts",
+                    "import './a'; import('./b'); import type { T } from './c'; require('./d');",
+                ),
+                ("a.ts", ""),
+                ("b.ts", ""),
+                ("c.ts", ""),
+                ("d.ts", ""),
+            ],
+        );
+        let mut config = Config::new(["index.ts"]);
+        config.root = Some(root);
+        config.edge_kinds = K::ALL;
+        let out = Mermaid::default()
+            .render_to_string(&crate::build_graph(&config).unwrap())
+            .unwrap();
+        // Plain imports keep the default look; the rest get a color, and imports that
+        // do not load at startup are dashed.
+        assert!(out.contains("  m4 -->|static| m0\n"), "{out}");
+        assert!(out.contains("  m4 -.->|dynamic| m1\n"), "{out}");
+        assert!(out.contains("  m4 -.->|type| m2\n"), "{out}");
+        assert!(out.contains("  m4 -->|require| m3\n"), "{out}");
+        assert!(
+            out.contains("  linkStyle 1 stroke:#009E73,color:#009E73\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("  linkStyle 2 stroke:#999999,color:#999999\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("  linkStyle 3 stroke:#D55E00,color:#D55E00\n"),
+            "{out}"
+        );
+        assert!(out.starts_with("flowchart LR\n"), "{out}");
+        assert!(!out.contains("classDef runtime"), "{out}");
     }
 
     #[test]
