@@ -10,11 +10,11 @@ categories = ["development-tools", "command-line-utilities"]
 
 [features]
 default = ["cli"]
-cli = ["dep:clap", "dep:anyhow"]
+cli = ["dep:clap", "dep:anyhow", "dep:serde", "dep:toml"]
 
 [[bin]]
 name = "oxchart"
-path = "src/main.rs"
+path = "src/bin/oxchart/main.rs"
 required-features = ["cli"]
 
 [dependencies]
@@ -31,3 +31,5 @@ oxc_ast_visit = "0.156.0"
 oxc_diagnostics = "0.156.0"
 oxc_resolver = "11.24.3"
 rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"], optional = true }
+toml = { version = "1.1.8", optional = true }
