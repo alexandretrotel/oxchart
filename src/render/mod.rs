@@ -131,6 +131,15 @@ mod tests {
         assert!(out.contains("m0[\"a#quot;b.ts\"]"), "{out}");
     }
 
+    #[cfg(feature = "svg")]
+    #[test]
+    fn mermaid_svg() {
+        let svg = Mermaid::default().render_svg(&graph("render-svg")).unwrap();
+        assert!(svg.starts_with("<svg"), "{}", &svg[..svg.len().min(200)]);
+        assert!(svg.contains("src/index.ts"));
+        assert!(svg.contains("react"));
+    }
+
     #[test]
     fn write_errors_become_render_errors() {
         struct Closed;
