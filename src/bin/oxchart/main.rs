@@ -12,16 +12,16 @@ mod output;
 use std::{
     env,
     fs::File,
-    io::{self, BufWriter, Write},
-    path::{PathBuf, absolute},
+    io::{self, BufWriter, IsTerminal, Write},
+    path::{Path, PathBuf, absolute},
     process::ExitCode,
 };
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use oxchart::Config;
+use oxchart::{Config, ModuleGraph};
 
-use crate::args::Args;
+use crate::args::{Args, Format};
 
 fn main() -> ExitCode {
     match run(&Args::parse()) {
@@ -49,7 +49,15 @@ fn run(args: &Args) -> Result<()> {
         format = settings.format;
     }
     args.apply(&mut config)?;
-    let renderer = args.format.or(format).unwrap_or_default().renderer();
+    // Asked for, else from the file name, else a picture for people, text for pipes.
+    let format = args
+        .format
+        .or(format)
+        .unwrap_or_else(|| match &args.output {
+            Some(path) => Format::of(path),
+            None if io::stdout().is_terminal() => Format::Svg,
+            None => Format::Text,
+        });
     if config.entrypoints.is_empty() {
         bail!(
             "no entrypoint given\n\n\
@@ -60,23 +68,41 @@ fn run(args: &Args) -> Result<()> {
 
     let graph = oxchart::build_graph(&config)?;
 
+    let terminal = args.output.is_none() && io::stdout().is_terminal();
     match &args.output {
-        Some(path) => {
-            let file =
-                File::create(path).with_context(|| format!("cannot write {}", path.display()))?;
-            let mut out = BufWriter::new(file);
-            renderer.render(&graph, &mut out)?;
-            out.flush()?;
+        Some(path) => save(format, &graph, path)?,
+        // A picture in a terminal: save it where the system keeps temporary files, and
+        // open it. Named after the project, so each run replaces the last picture.
+        None if format == Format::Svg && terminal => {
+            let name = graph.root().file_name().unwrap_or("graph".as_ref());
+            let path = env::temp_dir().join(format!("oxchart-{}.svg", name.display()));
+            save(format, &graph, &path)?;
+            match opener::open(&path) {
+                Ok(()) if !args.quiet => eprintln!("opened {}", path.display()),
+                Ok(()) => {}
+                Err(err) => eprintln!(
+                    "warning: cannot open {}: {err}\nOpen it yourself, or use -o to save it elsewhere.",
+                    path.display()
+                ),
+            }
         }
         None => {
             let mut out = BufWriter::new(io::stdout().lock());
-            renderer.render(&graph, &mut out)?;
+            format.write(&graph, &mut out)?;
             out.flush()?;
         }
     }
     if !args.quiet {
         output::write_problems(&graph, &mut io::stderr().lock())?;
     }
+    Ok(())
+}
+
+fn save(format: Format, graph: &ModuleGraph, path: &Path) -> Result<()> {
+    let file = File::create(path).with_context(|| format!("cannot write {}", path.display()))?;
+    let mut out = BufWriter::new(file);
+    format.write(graph, &mut out)?;
+    out.flush()?;
     Ok(())
 }
 
