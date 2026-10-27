@@ -4,7 +4,6 @@
 //! 1. the defaults of `Config::new`,
 //! 2. `oxchart.toml`, found in the current folder or a parent one (`file`),
 //! 3. the flags (`args`).
-//! ```
 
 mod args;
 mod file;
