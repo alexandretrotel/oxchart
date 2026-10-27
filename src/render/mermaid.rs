@@ -1,6 +1,8 @@
 use std::io::{self, Write};
 
 use super::{Renderer, render_error};
+#[cfg(feature = "svg")]
+use crate::error::Error;
 use crate::{
     error::Result,
     graph::{Module, ModuleGraph},
@@ -48,4 +50,27 @@ fn write(graph: &ModuleGraph, out: &mut dyn Write) -> io::Result<()> {
         writeln!(out, "  m{from} -->|{}| m{to}", edge.kinds)?;
     }
     Ok(())
+}
+
+#[cfg(feature = "svg")]
+impl Mermaid {
+    /// The chart as an SVG picture, drawn by [merman](https://crates.io/crates/merman).
+    ///
+    /// Needs the `svg` feature. Big graphs take longer to lay out and are hard to read:
+    /// past a few hundred modules, lower [`Config::max_depth`](crate::Config::max_depth).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Render`](crate::Error::Render) if merman cannot draw the chart.
+    pub fn render_svg(&self, graph: &ModuleGraph) -> Result<String> {
+        use merman::{OperationControl, RenderOutput, RenderRequest, SvgRequest};
+
+        let chart = self.render_to_string(graph)?;
+        let request = RenderRequest::svg(&chart, OperationControl::new(), SvgRequest::default());
+        match merman::Renderer::new().render(request) {
+            Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.into_parts().0),
+            Ok(_) => Err(Error::Render("merman returned no SVG".into())),
+            Err(err) => Err(Error::Render(err.into())),
+        }
+    }
 }
