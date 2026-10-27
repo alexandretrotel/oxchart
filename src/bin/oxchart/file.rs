@@ -6,6 +6,7 @@
 //! externals = "leaf"
 //! edges = ["static", "re-export", "require"]
 //! max-depth = 4
+//! format = "mermaid"
 //! ```
 
 use std::{
@@ -16,6 +17,8 @@ use std::{
 use anyhow::{Context, Result};
 use oxchart::{Config, EdgeKinds};
 use serde::Deserialize;
+
+use crate::args::Format;
 
 /// Every setting is optional: a missing one keeps the default.
 #[derive(Debug, Deserialize)]
@@ -31,6 +34,7 @@ pub struct File {
     max_depth: Option<usize>,
     externals: Option<String>,
     edges: Option<Vec<String>>,
+    pub format: Option<Format>,
 }
 
 /// Looks for `oxchart.toml` in `dir`, then in each parent folder, like `tsconfig.json`.
@@ -51,39 +55,39 @@ impl File {
     ///
     /// The root is the file's folder unless the file says otherwise, and every other
     /// path in the file starts from the root.
-    pub fn apply(self, path: &Path, config: &mut Config) -> Result<()> {
+    pub fn apply(&self, path: &Path, config: &mut Config) -> Result<()> {
         let dir = path.parent().unwrap_or(Path::new("."));
         let invalid = |key: &str| format!("invalid `{key}` in {}", path.display());
 
-        config.root = Some(match self.root {
+        config.root = Some(match &self.root {
             Some(root) => dir.join(root),
             None => dir.to_path_buf(),
         });
-        if let Some(entrypoints) = self.entrypoints {
-            config.entrypoints = entrypoints;
+        if let Some(entrypoints) = &self.entrypoints {
+            config.entrypoints.clone_from(entrypoints);
         }
-        if let Some(extensions) = self.extensions {
-            config.extensions = extensions;
+        if let Some(extensions) = &self.extensions {
+            config.extensions.clone_from(extensions);
         }
         if self.tsconfig.is_some() {
-            config.tsconfig = self.tsconfig;
+            config.tsconfig.clone_from(&self.tsconfig);
         }
-        if let Some(conditions) = self.conditions {
-            config.conditions = conditions;
+        if let Some(conditions) = &self.conditions {
+            config.conditions.clone_from(conditions);
         }
-        if let Some(include) = self.include {
-            config.include = include;
+        if let Some(include) = &self.include {
+            config.include.clone_from(include);
         }
-        if let Some(exclude) = self.exclude {
-            config.exclude = exclude;
+        if let Some(exclude) = &self.exclude {
+            config.exclude.clone_from(exclude);
         }
         if self.max_depth.is_some() {
             config.max_depth = self.max_depth;
         }
-        if let Some(externals) = self.externals {
+        if let Some(externals) = &self.externals {
             config.externals = externals.parse().with_context(|| invalid("externals"))?;
         }
-        if let Some(edges) = self.edges {
+        if let Some(edges) = &self.edges {
             config.edge_kinds = edges
                 .iter()
                 .map(|name| name.parse::<EdgeKinds>())

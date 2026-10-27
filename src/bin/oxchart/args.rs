@@ -3,8 +3,12 @@
 use std::path::{PathBuf, absolute};
 
 use anyhow::Result;
-use clap::Parser;
-use oxchart::{Config, EdgeKinds, Externals};
+use clap::{Parser, ValueEnum};
+use oxchart::{
+    Config, EdgeKinds, Externals,
+    render::{Mermaid, Renderer, Text},
+};
+use serde::Deserialize;
 
 const EXAMPLES: &str = "\
 Examples:
@@ -12,6 +16,7 @@ Examples:
   oxchart src/main.ts --externals leaf    Also show packages, one node each
   oxchart src/index.ts --max-depth 2      Stop two imports away from the start
   oxchart src/index.ts -o graph.txt       Write the graph to a file
+  oxchart src/index.ts --format mermaid   Mermaid chart, for GitHub or mermaid.live
 
 Settings can also live in oxchart.toml, in this folder or a parent one.
 Flags win over the file.";
@@ -20,6 +25,26 @@ Flags win over the file.";
 ///
 /// Prints one line per import to the terminal. Warnings and a summary go to stderr,
 /// so piping the output stays clean.
+/// How to write the graph. Set with `--format` or `format` in oxchart.toml.
+#[derive(Debug, Clone, Copy, Default, ValueEnum, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Format {
+    /// One line per import
+    #[default]
+    Text,
+    /// A Mermaid flowchart
+    Mermaid,
+}
+
+impl Format {
+    pub fn renderer(self) -> Box<dyn Renderer> {
+        match self {
+            Self::Text => Box::new(Text::default()),
+            Self::Mermaid => Box::new(Mermaid::default()),
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(version, after_help = EXAMPLES)]
 pub struct Args {
@@ -75,6 +100,10 @@ pub struct Args {
         verbatim_doc_comment
     )]
     pub edges: Option<Vec<EdgeKinds>>,
+
+    /// How to write the graph [default: text]
+    #[arg(long, value_name = "FORMAT")]
+    pub format: Option<Format>,
 
     /// Write the graph to this file instead of the terminal
     #[arg(short, long, value_name = "FILE")]

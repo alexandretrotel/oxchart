@@ -153,3 +153,19 @@ fn modules_without_imports_are_still_listed() {
     let out = oxchart(&dir, &["index.ts", "-q"]);
     assert_eq!(stdout(&out), "index.ts\n");
 }
+
+#[test]
+fn mermaid_format_from_flag_or_settings_file() {
+    let dir = app("mermaid");
+    let out = oxchart(&dir, &["src/index.ts", "-q", "--format", "mermaid"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let chart = stdout(&out);
+    assert!(chart.starts_with("flowchart LR\n"), "{chart}");
+    assert!(chart.contains("m1[\"src/b.ts\"]"), "{chart}");
+
+    fs::write(dir.join("oxchart.toml"), "format = \"mermaid\"\n").unwrap();
+    let out = oxchart(&dir, &["src/index.ts", "-q"]);
+    assert!(stdout(&out).starts_with("flowchart LR\n"));
+    let out = oxchart(&dir, &["src/index.ts", "-q", "--format", "text"]);
+    assert!(stdout(&out).starts_with("src/a.ts -> src/b.ts"));
+}

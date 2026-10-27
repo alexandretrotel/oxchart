@@ -76,6 +76,26 @@ impl ModuleGraph {
         &self.modules[id.index()]
     }
 
+    /// A short name to show for a module: the path from the root for files, like
+    /// `src/index.ts`, and the name for packages and runtime modules, like `react`.
+    ///
+    /// Every renderer uses it, so a module has the same name in every format.
+    pub fn label(&self, id: ModuleId) -> String {
+        match self.module(id) {
+            Module::File(path) => path
+                .strip_prefix(&self.root)
+                .unwrap_or(path)
+                .display()
+                .to_string(),
+            Module::Package(name) | Module::Runtime(name) => name.clone(),
+        }
+    }
+
+    /// The id of every module, in the order of [`modules`](Self::modules).
+    pub fn ids(&self) -> impl Iterator<Item = ModuleId> {
+        (0..self.modules.len()).map(ModuleId::new)
+    }
+
     /// Every import arrow, sorted by `from`, then `to`.
     pub fn edges(&self) -> &[Edge] {
         &self.edges
@@ -675,6 +695,24 @@ mod tests {
                 edge("src/index.ts", "node_modules/dual/esm.mjs", S),
             ]
         );
+    }
+
+    #[test]
+    fn labels_are_short() {
+        let root = project(
+            "graph-labels",
+            &[
+                ("src/index.ts", "import 'react'; import 'fs';"),
+                ("node_modules/react/index.js", ""),
+            ],
+        );
+        let mut c = config(&root);
+        c.externals = Externals::Leaf;
+        let g = build(&c).unwrap();
+        let labels: Vec<_> = (0..g.modules().len())
+            .map(|i| g.label(ModuleId::new(i)))
+            .collect();
+        assert_eq!(labels, ["src/index.ts", "react", "node:fs"]);
     }
 
     #[test]

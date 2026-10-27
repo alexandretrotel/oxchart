@@ -25,6 +25,7 @@ mod config;
 mod error;
 mod graph;
 mod parse;
+pub mod render;
 mod resolve;
 
 pub use config::{Config, EdgeKinds, Externals};

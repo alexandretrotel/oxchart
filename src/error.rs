@@ -36,6 +36,11 @@ pub enum Error {
         expected: &'static str,
     },
 
+    /// A [`Renderer`](crate::render::Renderer) could not write the graph, for example
+    /// because the output file or pipe was closed.
+    #[error("cannot write the graph")]
+    Render(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     /// An entrypoint does not exist. Entrypoints are file paths: `src/index` does not
     /// find `src/index.ts`.
     #[error("entrypoint not found: {}", path.display())]

@@ -42,10 +42,14 @@ fn run(args: &Args) -> Result<()> {
         Some(path) => Some(absolute(path)?),
         None => file::find(&env::current_dir()?),
     };
+    let mut format = None;
     if let Some(path) = settings {
-        file::load(&path)?.apply(&path, &mut config)?;
+        let settings = file::load(&path)?;
+        settings.apply(&path, &mut config)?;
+        format = settings.format;
     }
     args.apply(&mut config)?;
+    let renderer = args.format.or(format).unwrap_or_default().renderer();
     if config.entrypoints.is_empty() {
         bail!(
             "no entrypoint given\n\n\
@@ -61,12 +65,12 @@ fn run(args: &Args) -> Result<()> {
             let file =
                 File::create(path).with_context(|| format!("cannot write {}", path.display()))?;
             let mut out = BufWriter::new(file);
-            output::write_graph(&graph, &mut out)?;
+            renderer.render(&graph, &mut out)?;
             out.flush()?;
         }
         None => {
             let mut out = BufWriter::new(io::stdout().lock());
-            output::write_graph(&graph, &mut out)?;
+            renderer.render(&graph, &mut out)?;
             out.flush()?;
         }
     }
