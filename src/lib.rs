@@ -26,7 +26,6 @@ mod error;
 mod graph;
 mod parse;
 mod resolve;
-// TODO(render): `render` module, `Renderer` trait and `DisplayOptions` (deferred).
 
 pub use config::{Config, EdgeKinds, Externals};
 pub use error::{Error, Result};

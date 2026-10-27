@@ -23,8 +23,6 @@
 //! - Syntax errors as diagnostics. oxc recovers from small errors and keeps every
 //!   import. On a serious error it gives up on the file, which then has no imports.
 
-// TODO: handle `/// <reference path="...">` and TypeScript's `import x = require()`.
-
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     CallExpression, Expression, ImportDeclarationSpecifier, ImportExpression, Statement,

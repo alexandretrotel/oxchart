@@ -19,8 +19,6 @@
 //! The walk stops after `Config::max_depth` levels. At the end, files are sorted by
 //! name, so every run on the same code gives the same graph.
 
-// TODO: `.vue`, `.svelte` and `.astro` are shown but not opened; read their `<script>`.
-
 use std::{
     collections::HashMap,
     fs,
