@@ -28,9 +28,15 @@ pub enum Error {
         #[source]
         source: io::Error,
     },
-    // TODO(resolve): an entrypoint that does not resolve is fatal (`Entrypoint { path, source }`).
-    // Unresolved imports inside modules are NOT errors: they go to `ModuleGraph::unresolved`.
-    // Same for parse errors: collect as diagnostics, keep walking.
+
+    /// An entrypoint does not exist. Entrypoints are file paths: `src/index` does not
+    /// find `src/index.ts`.
+    #[error("entrypoint not found: {}", path.display())]
+    Entrypoint {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 }
 
 /// Shorthand for `Result<T, oxchart::Error>`.
