@@ -2,14 +2,21 @@
 
 See which files of a JavaScript or TypeScript project import which.
 
-Give oxchart the file your app starts from. It follows every import and prints the
-graph, one line per import.
+Give oxchart the file your app starts from. It follows every import, draws the graph
+as a picture and opens it.
 
 ```console
 $ oxchart src/index.ts
-src/a.ts -> src/b.ts (re-export)
-src/index.ts -> src/a.ts (static)
+opened /tmp/oxchart-my-app.svg
 3 modules, 2 imports, 0 not found, 0 problems in files
+```
+
+When the output is piped, it writes one line per import instead, so scripts keep
+working:
+
+```console
+$ oxchart src/index.ts | grep re-export
+src/a.ts -> src/b.ts (re-export)
 ```
 
 ## Install
@@ -21,12 +28,16 @@ cargo install --git https://github.com/alexandretrotel/oxchart
 ## Use
 
 ```sh
-oxchart src/index.ts                    # your own files
+oxchart src/index.ts                    # open a picture of your own files
 oxchart src/main.ts --externals leaf    # also show packages, one node each
 oxchart src/index.ts --max-depth 2      # stop two imports away from the start
 oxchart src/index.ts --edges all        # also follow import() and import type
-oxchart src/index.ts -o graph.txt       # write to a file
+oxchart src/index.ts -o graph.svg       # save the picture instead of opening it
+oxchart src/index.ts -o graph.mmd       # Mermaid chart, for GitHub or mermaid.live
 ```
+
+With `-o`, the file extension picks the format: `.svg`, `.mmd` or `.txt`.
+`--format svg|mermaid|text` always wins.
 
 Run `oxchart --help` for every option.
 
@@ -67,13 +78,14 @@ for edge in graph.edges() {
 ```
 
 To use only the library, turn off the CLI: `oxchart = { version = "0.1", default-features = false }`.
+Add `features = ["svg"]` to keep `Mermaid::render_svg`.
 
 ## Credits
 
 - [oxc](https://oxc.rs) by the [VoidZero](https://voidzero.dev) team: `oxc_parser`
   reads the files and `oxc_resolver` finds the imported files. oxchart is a thin layer
   on their work.
-- [merman](https://crates.io/crates/merman): renders the graph as a Mermaid chart.
+- [merman](https://crates.io/crates/merman): draws the Mermaid chart as an SVG picture.
 
 ## License
 
