@@ -34,8 +34,8 @@ use crate::config::Config;
 pub(crate) enum Target {
     /// A file of your own code.
     Local(PathBuf),
-    /// A file inside an npm package.
-    Package(PathBuf),
+    /// A file inside an npm package, and the package's name, like `react`.
+    Package { path: PathBuf, name: String },
     /// Provided by the runtime, not a file: `node:fs` (also written `fs`), `bun`,
     /// `bun:sqlite`, `cloudflare:workers`, Deno's `jsr:@std/path`...
     Runtime(String),
@@ -109,21 +109,46 @@ impl Resolver {
         let resolver = if require { &self.require } else { &self.import };
         match resolver.resolve_file(importer, specifier) {
             Ok(resolution) => {
-                let path = resolution.into_path_buf();
+                let path = resolution.path();
                 // The path is the real one (symlinks followed), so a monorepo package
                 // lives in your own folders and is not a package.
-                Ok(
-                    if path.components().any(|c| c.as_os_str() == "node_modules") {
-                        Target::Package(path)
-                    } else {
-                        Target::Local(path)
-                    },
-                )
+                if !path.components().any(|c| c.as_os_str() == "node_modules") {
+                    return Ok(Target::Local(resolution.into_path_buf()));
+                }
+                let name = resolution
+                    .package_json()
+                    .and_then(|package| package.name())
+                    .map_or_else(|| package_name(path), String::from);
+                Ok(Target::Package {
+                    path: resolution.into_path_buf(),
+                    name,
+                })
             }
             // A bare Node built-in like `fs`, reported as `node:fs`.
             Err(ResolveError::Builtin { resolved, .. }) => Ok(Target::Runtime(resolved)),
             Err(err) => Err(err),
         }
+    }
+}
+
+/// Guesses a package's name from its folder: `react` or `@scope/lib`.
+///
+/// Only used when the nearest `package.json` has no name, like the small ones some
+/// packages put in `dist/cjs` to set `"type"`. Uses the last `node_modules` in the path,
+/// so pnpm's `node_modules/.pnpm/react@18/node_modules/react/index.js` gives `react`.
+fn package_name(path: &Path) -> String {
+    let parts: Vec<_> = path
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect();
+    let start = parts
+        .iter()
+        .rposition(|c| c == "node_modules")
+        .map_or(0, |i| i + 1);
+    match &parts[start..] {
+        [scope, name, ..] if scope.starts_with('@') => format!("{scope}/{name}"),
+        [name, ..] => name.to_string(),
+        [] => String::new(),
     }
 }
 
@@ -167,8 +192,11 @@ pub(crate) mod tests {
         Ok(Target::Local(root.join(path)))
     }
 
-    fn package(root: &Path, path: &str) -> Result<Target, ResolveError> {
-        Ok(Target::Package(root.join(path)))
+    fn package(root: &Path, path: &str, name: &str) -> Result<Target, ResolveError> {
+        Ok(Target::Package {
+            path: root.join(path),
+            name: name.into(),
+        })
     }
 
     #[test]
@@ -278,21 +306,21 @@ pub(crate) mod tests {
         let from = root.join("src/index.ts");
         assert_eq!(
             r.resolve(&from, "pkg", false),
-            package(&root, "node_modules/pkg/node.mjs")
+            package(&root, "node_modules/pkg/node.mjs", "pkg")
         );
         assert_eq!(
             r.resolve(&from, "pkg", true),
-            package(&root, "node_modules/pkg/node.cjs")
+            package(&root, "node_modules/pkg/node.cjs", "pkg")
         );
         // `default` matches without being listed in `conditions`.
         assert_eq!(
             r.resolve(&from, "web", false),
-            package(&root, "node_modules/web/d.js")
+            package(&root, "node_modules/web/d.js", "web")
         );
         // No `exports`: `module` wins over `main`.
         assert_eq!(
             r.resolve(&from, "old", false),
-            package(&root, "node_modules/old/esm.js")
+            package(&root, "node_modules/old/esm.js", "old")
         );
     }
 
@@ -333,6 +361,53 @@ pub(crate) mod tests {
         assert!(r.resolve(&from, "C:/nope.ts", false).is_err());
         assert!(r.resolve(&from, "./a:b", false).is_err());
         assert!(r.resolve(&from, "@scope/a:b", false).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_names_come_from_package_json() {
+        // Yarn's pnpm linker stores packages under `node_modules/.store`: the folder
+        // name says nothing about the package, its `package.json` does.
+        let root = project(
+            "package-names",
+            &[
+                ("src/index.ts", ""),
+                (
+                    "node_modules/.store/react-npm-18/package/package.json",
+                    r#"{ "name": "react" }"#,
+                ),
+                ("node_modules/.store/react-npm-18/package/index.js", ""),
+                (
+                    "node_modules/dual/package.json",
+                    r#"{ "name": "dual", "main": "./dist/cjs/index.js" }"#,
+                ),
+                (
+                    "node_modules/dual/dist/cjs/package.json",
+                    r#"{ "type": "commonjs" }"#,
+                ),
+                ("node_modules/dual/dist/cjs/index.js", ""),
+            ],
+        );
+        std::os::unix::fs::symlink(
+            root.join("node_modules/.store/react-npm-18/package"),
+            root.join("node_modules/react"),
+        )
+        .unwrap();
+        let r = resolver();
+        let from = root.join("src/index.ts");
+        assert_eq!(
+            r.resolve(&from, "react", false),
+            package(
+                &root,
+                "node_modules/.store/react-npm-18/package/index.js",
+                "react"
+            )
+        );
+        // The nearest `package.json` has no name: fall back to the folder name.
+        assert_eq!(
+            r.resolve(&from, "dual", false),
+            package(&root, "node_modules/dual/dist/cjs/index.js", "dual")
+        );
     }
 
     #[cfg(unix)]

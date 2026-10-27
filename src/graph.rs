@@ -210,9 +210,9 @@ pub(crate) fn build(config: &Config) -> Result<ModuleGraph> {
                 };
                 let (module, open) = match target {
                     Target::Local(path) => (Module::File(path.clone()), Some(path)),
-                    Target::Package(path) => match config.externals {
+                    Target::Package { path, name } => match config.externals {
                         Externals::Hide => continue,
-                        Externals::Leaf => (Module::Package(package_name(&path)), None),
+                        Externals::Leaf => (Module::Package(name), None),
                         Externals::Follow => (Module::File(path.clone()), Some(path)),
                     },
                     Target::Runtime(name) => match config.externals {
@@ -393,26 +393,6 @@ fn split_require(kinds: EdgeKinds) -> impl Iterator<Item = (EdgeKinds, bool)> {
     [(import, false), (require, true)]
         .into_iter()
         .filter(|(kinds, _)| !kinds.is_empty())
-}
-
-/// The package a file belongs to: `react` or `@scope/lib`.
-///
-/// Uses the last `node_modules` in the path, so pnpm's
-/// `node_modules/.pnpm/react@18/node_modules/react/index.js` gives `react`.
-fn package_name(path: &Path) -> String {
-    let parts: Vec<_> = path
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy())
-        .collect();
-    let start = parts
-        .iter()
-        .rposition(|c| c == "node_modules")
-        .map_or(0, |i| i + 1);
-    match &parts[start..] {
-        [scope, name, ..] if scope.starts_with('@') => format!("{scope}/{name}"),
-        [name, ..] => name.to_string(),
-        [] => String::new(),
-    }
 }
 
 /// The 1-based line of a byte offset.
