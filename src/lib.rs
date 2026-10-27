@@ -30,7 +30,7 @@ mod resolve;
 
 pub use config::{Config, EdgeKinds, Externals};
 pub use error::{Error, Result};
-pub use graph::ModuleGraph;
+pub use graph::{Diagnostic, Edge, Module, ModuleGraph, ModuleId, Unresolved};
 
 /// Builds the graph of every file reachable from the entrypoints.
 ///
