@@ -11,6 +11,17 @@ opened /tmp/oxchart-my-app.svg
 3 modules, 2 imports, 0 not found, 0 problems in files
 ```
 
+Here is [zustand](https://github.com/pmndrs/zustand) v5.0.16, drawn by oxchart:
+
+![Import graph of zustand v5.0.16](assets/zustand.svg)
+
+Made with this command, run in the zustand repository:
+
+```sh
+oxchart src/index.ts src/vanilla.ts src/middleware.ts src/middleware/immer.ts \
+  src/shallow.ts src/traditional.ts --externals leaf -o zustand.svg
+```
+
 When the output is piped, it writes one line per import instead, so scripts keep
 working:
 
