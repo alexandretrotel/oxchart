@@ -29,6 +29,13 @@ pub enum Error {
         source: io::Error,
     },
 
+    /// A setting has a value oxchart does not know, like `skip` for `externals`.
+    #[error("unknown value `{value}`, expected one of: {expected}")]
+    UnknownValue {
+        value: String,
+        expected: &'static str,
+    },
+
     /// An entrypoint does not exist. Entrypoints are file paths: `src/index` does not
     /// find `src/index.ts`.
     #[error("entrypoint not found: {}", path.display())]
