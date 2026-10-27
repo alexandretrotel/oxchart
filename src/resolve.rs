@@ -142,14 +142,14 @@ fn has_scheme(specifier: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs;
 
     use super::*;
 
     /// A small project in a fresh temp folder: `(path, content)` pairs.
-    fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("oxchart-resolve-{name}"));
+    pub(crate) fn project(name: &str, files: &[(&str, &str)]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("oxchart-test-{name}"));
         let _ = fs::remove_dir_all(&root);
         for (path, content) in files {
             let path = root.join(path);
