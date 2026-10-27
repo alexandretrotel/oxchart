@@ -73,9 +73,9 @@ fn run(args: &Args) -> Result<()> {
         Some(path) => save(format, &graph, path)?,
         // A picture in a terminal: save it where the system keeps temporary files, and
         // open it. Named after the project, so each run replaces the last picture.
-        None if format == Format::Svg && terminal => {
+        None if terminal && let Some(extension) = format.picture() => {
             let name = graph.root().file_name().unwrap_or("graph".as_ref());
-            let path = env::temp_dir().join(format!("oxchart-{}.svg", name.display()));
+            let path = env::temp_dir().join(format!("oxchart-{}.{extension}", name.display()));
             save(format, &graph, &path)?;
             match opener::open(&path) {
                 Ok(()) if !args.quiet => eprintln!("opened {}", path.display()),

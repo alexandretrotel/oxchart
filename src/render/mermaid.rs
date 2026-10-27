@@ -149,15 +149,119 @@ impl Mermaid {
     pub fn render_svg(&self, graph: &ModuleGraph) -> Result<String> {
         use merman::{OperationControl, RenderOutput, RenderRequest, SvgRequest};
 
-        let chart = format!(
+        let chart = self.chart_to_draw(graph)?;
+        match draw(RenderRequest::svg(
+            &chart,
+            OperationControl::new(),
+            SvgRequest::default(),
+        ))? {
+            RenderOutput::Svg(Some(svg)) => Ok(svg.into_parts().0),
+            _ => Err(Error::Render("merman returned no SVG".into())),
+        }
+    }
+
+    /// The Mermaid text, with the settings merman needs to draw it well.
+    fn chart_to_draw(&self, graph: &ModuleGraph) -> Result<String> {
+        // Plain SVG text for labels, not HTML in `<foreignObject>`: many viewers
+        // (editors, image tools) do not draw HTML and would show empty boxes. The wide
+        // wrapping keeps long paths on one line.
+        Ok(format!(
             "%%{{init: {{\"htmlLabels\": false, \"flowchart\": {{\"wrappingWidth\": 600}}}}}}%%\n{}",
             self.render_to_string(graph)?
-        );
-        let request = RenderRequest::svg(&chart, OperationControl::new(), SvgRequest::default());
-        match merman::Renderer::new().render(request) {
-            Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.into_parts().0),
-            Ok(_) => Err(Error::Render("merman returned no SVG".into())),
-            Err(err) => Err(Error::Render(err.into())),
+        ))
+    }
+}
+
+/// Runs one merman request, turning its error into ours.
+#[cfg(feature = "svg")]
+fn draw(request: merman::RenderRequest<'_>) -> Result<merman::RenderOutput> {
+    merman::Renderer::new()
+        .render(request)
+        .map_err(|err| Error::Render(err.into()))
+}
+
+/// Images are drawn on white: a transparent PNG is unreadable on a dark page, and JPEG
+/// has no transparency at all.
+#[cfg(any(feature = "png", feature = "jpeg"))]
+fn raster_options() -> merman::svg::export::RasterOptions {
+    merman::svg::export::RasterOptions {
+        background: Some("white".into()),
+        ..Default::default()
+    }
+}
+
+#[cfg(feature = "png")]
+impl Mermaid {
+    /// The chart as a PNG image, made from [`render_svg`](Self::render_svg)'s picture.
+    /// Needs the `png` feature.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Render`](crate::Error::Render) if merman cannot draw the chart.
+    pub fn render_png(&self, graph: &ModuleGraph) -> Result<Vec<u8>> {
+        use merman::{OperationControl, PngRequest, RenderOutput, RenderRequest, SvgRequest};
+
+        let chart = self.chart_to_draw(graph)?;
+        let request = PngRequest {
+            svg: SvgRequest::default(),
+            options: raster_options(),
+        };
+        match draw(RenderRequest::png(&chart, OperationControl::new(), request))? {
+            RenderOutput::Png(Some(png)) => Ok(png.bytes),
+            _ => Err(Error::Render("merman returned no PNG".into())),
+        }
+    }
+}
+
+#[cfg(feature = "jpeg")]
+impl Mermaid {
+    /// The chart as a JPEG image, made from [`render_svg`](Self::render_svg)'s picture.
+    /// Needs the `jpeg` feature.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Render`](crate::Error::Render) if merman cannot draw the chart.
+    pub fn render_jpeg(&self, graph: &ModuleGraph) -> Result<Vec<u8>> {
+        use merman::{JpegRequest, OperationControl, RenderOutput, RenderRequest, SvgRequest};
+
+        let chart = self.chart_to_draw(graph)?;
+        let request = JpegRequest {
+            svg: SvgRequest::default(),
+            options: raster_options(),
+        };
+        match draw(RenderRequest::jpeg(
+            &chart,
+            OperationControl::new(),
+            request,
+        ))? {
+            RenderOutput::Jpeg(Some(jpeg)) => Ok(jpeg.bytes),
+            _ => Err(Error::Render("merman returned no JPEG".into())),
+        }
+    }
+}
+
+#[cfg(feature = "pdf")]
+impl Mermaid {
+    /// The chart as a one-page PDF, made from [`render_svg`](Self::render_svg)'s picture.
+    /// Needs the `pdf` feature.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Render`](crate::Error::Render) if merman cannot draw the chart.
+    pub fn render_pdf(&self, graph: &ModuleGraph) -> Result<Vec<u8>> {
+        use merman::{OperationControl, PdfRequest, RenderOutput, RenderRequest, SvgRequest};
+
+        let chart = self.chart_to_draw(graph)?;
+        let request = PdfRequest {
+            svg: SvgRequest::default(),
+            options: merman::svg::export::PdfOptions {
+                background: Some("white".into()),
+                ..Default::default()
+            },
+        };
+        match draw(RenderRequest::pdf(&chart, OperationControl::new(), request))? {
+            RenderOutput::Pdf(Some(pdf)) => Ok(pdf.bytes),
+            _ => Err(Error::Render("merman returned no PDF".into())),
         }
     }
 }

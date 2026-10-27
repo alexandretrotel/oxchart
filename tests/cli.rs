@@ -209,3 +209,21 @@ fn ascii_format_draws_in_the_terminal() {
     assert!(drawing.contains("│ src/index.ts"), "{drawing}");
     assert!(drawing.contains("re-export"), "{drawing}");
 }
+
+#[test]
+fn image_and_pdf_formats_from_the_extension() {
+    let dir = app("images");
+    for (file, start) in [
+        ("graph.png", &b"\x89PNG"[..]),
+        ("graph.jpg", &[0xFF, 0xD8, 0xFF][..]),
+        ("graph.jpeg", &[0xFF, 0xD8, 0xFF][..]),
+        ("graph.pdf", &b"%PDF-"[..]),
+    ] {
+        let out = oxchart(&dir, &["src/index.ts", "-q", "-o", file]);
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert!(
+            fs::read(dir.join(file)).unwrap().starts_with(start),
+            "{file}"
+        );
+    }
+}

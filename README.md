@@ -44,12 +44,13 @@ oxchart src/main.ts --externals leaf    # also show packages, one node each
 oxchart src/index.ts --max-depth 2      # stop two imports away from the start
 oxchart src/index.ts --edges all        # also follow import() and import type
 oxchart src/index.ts -o graph.svg       # save the picture instead of opening it
+oxchart src/index.ts -o graph.png       # also .jpg and .pdf
 oxchart src/index.ts -o graph.mmd       # Mermaid chart, for GitHub or mermaid.live
 oxchart src/index.ts --format ascii     # draw the chart in the terminal
 ```
 
-With `-o`, the file extension picks the format: `.svg`, `.mmd` or `.txt`.
-`--format svg|mermaid|ascii|text` always wins.
+With `-o`, the file extension picks the format: `.svg`, `.png`, `.jpg`, `.pdf`, `.mmd`
+or `.txt`. `--format svg|png|jpeg|pdf|mermaid|ascii|text` always wins.
 
 Run `oxchart --help` for every option.
 
@@ -88,10 +89,6 @@ for edge in graph.edges() {
     println!("{:?} -> {:?}", graph.module(edge.from), graph.module(edge.to));
 }
 ```
-
-To use only the library, turn off the CLI: `oxchart = { version = "0.1", default-features = false }`.
-Add `features = ["svg"]` for `Mermaid::render_svg`, and `"ascii"` for text drawings
-(`Renderer::render_ascii`).
 
 ## Credits
 

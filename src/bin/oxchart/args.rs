@@ -19,6 +19,7 @@ Examples:
   oxchart src/main.ts --externals leaf    Also show packages, one node each
   oxchart src/index.ts --max-depth 2      Stop two imports away from the start
   oxchart src/index.ts -o graph.svg       Save the picture instead of opening it
+  oxchart src/index.ts -o graph.png       Also .jpg and .pdf
   oxchart src/index.ts -o graph.mmd       Mermaid chart, for GitHub or mermaid.live
   oxchart src/index.ts --format ascii     Draw the chart in the terminal
   oxchart src/index.ts | grep react       One line per import, when piped
@@ -38,6 +39,12 @@ pub enum Format {
     Svg,
     /// The Mermaid flowchart drawn with text, for the terminal
     Ascii,
+    /// A PNG image of the Mermaid flowchart
+    Png,
+    /// A JPEG image of the Mermaid flowchart
+    Jpeg,
+    /// A PDF of the Mermaid flowchart
+    Pdf,
 }
 
 impl Format {
@@ -45,17 +52,35 @@ impl Format {
     pub fn of(path: &Path) -> Self {
         match path.extension().and_then(|ext| ext.to_str()) {
             Some("svg") => Self::Svg,
+            Some("png") => Self::Png,
+            Some("jpg" | "jpeg") => Self::Jpeg,
+            Some("pdf") => Self::Pdf,
             Some("mmd" | "mermaid") => Self::Mermaid,
             _ => Self::Text,
         }
     }
 
+    /// The file extension of formats that are opened in a viewer, not printed.
+    pub fn picture(self) -> Option<&'static str> {
+        match self {
+            Self::Svg => Some("svg"),
+            Self::Png => Some("png"),
+            Self::Jpeg => Some("jpg"),
+            Self::Pdf => Some("pdf"),
+            Self::Text | Self::Mermaid | Self::Ascii => None,
+        }
+    }
+
     pub fn write(self, graph: &ModuleGraph, out: &mut dyn Write) -> Result<()> {
+        let mermaid = Mermaid::default();
         match self {
             Self::Text => Text::default().render(graph, out)?,
-            Self::Mermaid => Mermaid::default().render(graph, out)?,
-            Self::Svg => out.write_all(Mermaid::default().render_svg(graph)?.as_bytes())?,
-            Self::Ascii => out.write_all(Mermaid::default().render_ascii(graph)?.as_bytes())?,
+            Self::Mermaid => mermaid.render(graph, out)?,
+            Self::Svg => out.write_all(mermaid.render_svg(graph)?.as_bytes())?,
+            Self::Ascii => out.write_all(mermaid.render_ascii(graph)?.as_bytes())?,
+            Self::Png => out.write_all(&mermaid.render_png(graph)?)?,
+            Self::Jpeg => out.write_all(&mermaid.render_jpeg(graph)?)?,
+            Self::Pdf => out.write_all(&mermaid.render_pdf(graph)?)?,
         }
         Ok(())
     }
@@ -126,7 +151,7 @@ pub struct Args {
     #[arg(long, value_name = "FORMAT", verbatim_doc_comment)]
     pub format: Option<Format>,
 
-    /// Save the graph to this file; .svg, .mmd and .txt pick the format
+    /// Save the graph to this file; .svg, .png, .jpg, .pdf, .mmd and .txt pick the format
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
 

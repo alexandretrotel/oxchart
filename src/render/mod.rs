@@ -230,6 +230,29 @@ mod tests {
         assert!(drawing.contains("react"), "{drawing}");
     }
 
+    #[cfg(feature = "png")]
+    #[test]
+    fn mermaid_png() {
+        let png = Mermaid::default().render_png(&graph("render-png")).unwrap();
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+    }
+
+    #[cfg(feature = "jpeg")]
+    #[test]
+    fn mermaid_jpeg() {
+        let jpeg = Mermaid::default()
+            .render_jpeg(&graph("render-jpeg"))
+            .unwrap();
+        assert!(jpeg.starts_with(&[0xFF, 0xD8, 0xFF]));
+    }
+
+    #[cfg(feature = "pdf")]
+    #[test]
+    fn mermaid_pdf() {
+        let pdf = Mermaid::default().render_pdf(&graph("render-pdf")).unwrap();
+        assert!(pdf.starts_with(b"%PDF-"));
+    }
+
     #[test]
     fn write_errors_become_render_errors() {
         struct Closed;
