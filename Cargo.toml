@@ -23,3 +23,9 @@ thiserror = "2.0.21"
 
 anyhow = { version = "1.0.104", optional = true }
 clap = { version = "4.6.7", features = ["derive"], optional = true }
+oxc_parser = "0.156.0"
+oxc_allocator = "0.156.0"
+oxc_span = "0.156.0"
+oxc_ast = "0.156.0"
+oxc_ast_visit = "0.156.0"
+oxc_diagnostics = "0.156.0"
