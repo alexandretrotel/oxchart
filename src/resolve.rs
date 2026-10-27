@@ -1,7 +1,8 @@
 //! Turns an import path into a real file on disk, using `oxc_resolver`.
 //!
 //! `import x from './a'` only says `./a`. This module finds which file that is:
-//! `./a.ts`, `./a/index.ts`, a file inside an npm package, or a Node built-in.
+//! `./a.ts`, `./a/index.ts`, a file inside an npm package, or something the runtime
+//! provides, like Node's `fs` or Bun's `bun:sqlite`.
 //!
 //! How it looks:
 //! - From the folder of the file that imports, not from the project root.
@@ -11,6 +12,9 @@
 //!   or the one in `Config::tsconfig` for every file.
 //! - For a package, picking the build that matches `Config::conditions`. Packages
 //!   without `exports` are read from their `module` field, then `main`.
+//! - Treating imports with a scheme (`node:`, `bun:`, `cloudflare:`, Deno's `jsr:`,
+//!   `npm:` and `https:`), plus bare `bun`, as provided by the runtime. They are not
+//!   files on disk, so they are never looked up.
 //! - Following symlinks to the real file. Paths then start like `Config::root_dir`,
 //!   and monorepo packages (symlinks to your own folders) count as your own code.
 //!
@@ -32,8 +36,9 @@ pub(crate) enum Target {
     Local(PathBuf),
     /// A file inside an npm package.
     Package(PathBuf),
-    /// A Node built-in like `fs` or `node:fs`.
-    Builtin(String),
+    /// Provided by the runtime, not a file: `node:fs` (also written `fs`), `bun`,
+    /// `bun:sqlite`, `cloudflare:workers`, Deno's `jsr:@std/path`...
+    Runtime(String),
 }
 
 /// Finds the files that imports point to. Build it once, then share it between threads.
@@ -98,6 +103,9 @@ impl Resolver {
         specifier: &str,
         require: bool,
     ) -> Result<Target, ResolveError> {
+        if specifier == "bun" || has_scheme(specifier) {
+            return Ok(Target::Runtime(specifier.into()));
+        }
         let resolver = if require { &self.require } else { &self.import };
         match resolver.resolve_file(importer, specifier) {
             Ok(resolution) => {
@@ -112,10 +120,25 @@ impl Resolver {
                     },
                 )
             }
-            Err(ResolveError::Builtin { resolved, .. }) => Ok(Target::Builtin(resolved)),
+            // A bare Node built-in like `fs`, reported as `node:fs`.
+            Err(ResolveError::Builtin { resolved, .. }) => Ok(Target::Runtime(resolved)),
             Err(err) => Err(err),
         }
     }
+}
+
+/// `true` if `specifier` starts with a URL scheme like `bun:` or `https:`.
+///
+/// A scheme is a letter, then letters, digits, `+`, `-` or `.`, then `:`. It needs at
+/// least two characters, so a Windows drive like `C:` is not one.
+fn has_scheme(specifier: &str) -> bool {
+    specifier.split_once(':').is_some_and(|(scheme, _)| {
+        scheme.len() > 1
+            && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+    })
 }
 
 #[cfg(test)]
@@ -274,18 +297,42 @@ mod tests {
     }
 
     #[test]
-    fn builtins() {
-        let root = project("builtins", &[("src/index.ts", "")]);
+    fn runtime_modules() {
+        let root = project("runtime", &[("src/index.ts", "")]);
         let r = resolver();
         let from = root.join("src/index.ts");
-        assert!(matches!(
-            r.resolve(&from, "fs", false),
-            Ok(Target::Builtin(_))
-        ));
-        assert!(matches!(
-            r.resolve(&from, "node:fs", true),
-            Ok(Target::Builtin(_))
-        ));
+        let runtime = |name: &str| Ok(Target::Runtime(name.into()));
+        assert_eq!(r.resolve(&from, "fs", false), runtime("node:fs"));
+        assert_eq!(r.resolve(&from, "node:fs", true), runtime("node:fs"));
+        assert_eq!(r.resolve(&from, "bun", false), runtime("bun"));
+        assert_eq!(r.resolve(&from, "bun:sqlite", false), runtime("bun:sqlite"));
+        assert_eq!(
+            r.resolve(&from, "cloudflare:workers", false),
+            runtime("cloudflare:workers")
+        );
+        assert_eq!(
+            r.resolve(&from, "jsr:@std/path", false),
+            runtime("jsr:@std/path")
+        );
+        assert_eq!(
+            r.resolve(&from, "npm:react@18", false),
+            runtime("npm:react@18")
+        );
+        assert_eq!(
+            r.resolve(&from, "https://deno.land/x/a.ts", false),
+            runtime("https://deno.land/x/a.ts")
+        );
+    }
+
+    #[test]
+    fn colons_that_are_not_schemes() {
+        let root = project("not-schemes", &[("src/index.ts", "")]);
+        let r = resolver();
+        let from = root.join("src/index.ts");
+        // A Windows drive letter, and names that only contain a colon later on.
+        assert!(r.resolve(&from, "C:/nope.ts", false).is_err());
+        assert!(r.resolve(&from, "./a:b", false).is_err());
+        assert!(r.resolve(&from, "@scope/a:b", false).is_err());
     }
 
     #[cfg(unix)]

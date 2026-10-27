@@ -15,7 +15,7 @@ use crate::error::{Error, Result};
 /// graph of your own code as it runs:
 ///
 /// - the imports that load code when the app starts, but not `import()` or `import type`
-/// - no npm packages or Node built-ins
+/// - no npm packages or runtime modules (`node:fs`, `bun:sqlite`...)
 /// - no depth limit
 ///
 /// ```
@@ -68,7 +68,7 @@ pub struct Config {
     /// `Some(1)` shows the entrypoints and the files they import directly. `Some(0)`
     /// shows the entrypoints only. `None` has no limit.
     pub max_depth: Option<usize>,
-    /// What to show for npm packages and Node built-ins. See [`Externals`].
+    /// What to show for npm packages and runtime modules. See [`Externals`].
     pub externals: Externals,
     /// Which kinds of import to show and follow. See [`EdgeKinds`].
     pub edge_kinds: EdgeKinds,
@@ -153,7 +153,8 @@ fn glob_set(patterns: &[String]) -> Result<GlobSet> {
     })
 }
 
-/// What to show for imports of npm packages (`react`) and Node built-ins (`node:fs`).
+/// What to show for imports of npm packages (`react`) and of modules the runtime
+/// provides (`node:fs`, `bun:sqlite`, `cloudflare:workers`...).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum Externals {
