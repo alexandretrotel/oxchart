@@ -13,12 +13,12 @@
 //!    entrypoints are always kept and arrows into them too.
 //! 5. Add the arrow, and queue the file for the next level if it is new.
 //!
+//! Steps 1 to 3 run in parallel for all files of a level. Steps 4 and 5
+//! run on one thread, in a fixed order, so the result never depends on timing.
+//!
 //! The walk stops after `Config::max_depth` levels. At the end, files are sorted by
 //! name, so every run on the same code gives the same graph.
 
-// TODO: open each level's files in parallel with `rayon`, one `Allocator` per thread
-// (`map_init`), merging results on one thread. Do it once a real project shows the
-// walk is slow.
 // TODO: `.vue`, `.svelte` and `.astro` are shown but not opened; read their `<script>`.
 
 use std::{
@@ -29,6 +29,7 @@ use std::{
 
 use oxc_allocator::Allocator;
 use oxc_span::SourceType;
+use rayon::prelude::*;
 
 use crate::{
     config::{Config, EdgeKinds, Externals},
@@ -180,78 +181,59 @@ pub(crate) fn build(config: &Config) -> Result<ModuleGraph> {
         }
     }
 
-    let mut allocator = Allocator::default();
     let mut depth = 0;
     while !level.is_empty() && config.max_depth.is_none_or(|max| depth < max) {
-        let mut next = Vec::new();
-        for (from, path) in level {
-            // Not JavaScript or TypeScript (`.css`, `.json`...): shown, never opened.
-            let Ok(source_type) = SourceType::from_path(&path) else {
-                continue;
-            };
-            let source = match fs::read_to_string(&path) {
-                Ok(source) => source,
-                Err(err) => {
-                    graph.diagnostics.push(Diagnostic {
-                        module: from,
-                        message: format!("cannot read file: {err}"),
-                        line: None,
-                    });
-                    continue;
-                }
-            };
-            allocator.reset();
-            let parsed = parse(&allocator, source_type, &source, config.edge_kinds);
-            graph
-                .diagnostics
-                .extend(parsed.diagnostics.into_iter().map(|d| {
-                    Diagnostic {
-                        module: from,
-                        line: d
-                            .labels
-                            .first()
-                            .map(|label| line_of(&source, label.offset())),
-                        message: d.message.to_string(),
-                    }
-                }));
+        // Files of one level are opened in parallel. `map_init` reuses an allocator for
+        // many files instead of making one per file.
+        let opened: Vec<Opened> = level
+            .par_iter()
+            .map_init(Allocator::default, |allocator, (from, path)| {
+                open(*from, path, config, &resolver, allocator)
+            })
+            .collect();
 
-            for import in parsed.imports {
-                for (kinds, require) in split_require(import.kinds) {
-                    let target = match resolver.resolve(&path, &import.specifier, require) {
-                        Ok(target) => target,
-                        Err(err) => {
-                            graph.unresolved.push(Unresolved {
-                                from,
-                                specifier: import.specifier.clone(),
-                                reason: err.to_string(),
-                            });
-                            continue;
-                        }
-                    };
-                    let (module, open) = match target {
-                        Target::Local(path) => (Module::File(path.clone()), Some(path)),
-                        Target::Package(path) => match config.externals {
-                            Externals::Hide => continue,
-                            Externals::Leaf => (Module::Package(package_name(&path)), None),
-                            Externals::Follow => (Module::File(path.clone()), Some(path)),
-                        },
-                        Target::Runtime(name) => match config.externals {
-                            Externals::Hide => continue,
-                            Externals::Leaf | Externals::Follow => (Module::Runtime(name), None),
-                        },
-                    };
-                    // Files already in the graph skip the filter: that keeps arrows into
-                    // excluded entrypoints.
-                    if let (Module::File(path), None) = (&module, graph.ids.get(&module))
-                        && !filter.is_match(path.strip_prefix(&root).unwrap_or(path))
-                    {
+        // Merged on one thread, in the same order every run, so ids are stable.
+        let mut next = Vec::new();
+        for file in opened {
+            graph.diagnostics.extend(file.diagnostics);
+            for (specifier, kinds, target) in file.imports {
+                let target = match target {
+                    Ok(target) => target,
+                    Err(reason) => {
+                        graph.unresolved.push(Unresolved {
+                            from: file.from,
+                            specifier,
+                            reason,
+                        });
                         continue;
                     }
-                    let (to, new) = graph.add(module);
-                    *graph.edges.entry((from, to)).or_insert(EdgeKinds::NONE) |= kinds;
-                    if new && let Some(path) = open {
-                        next.push((to, path));
-                    }
+                };
+                let (module, open) = match target {
+                    Target::Local(path) => (Module::File(path.clone()), Some(path)),
+                    Target::Package(path) => match config.externals {
+                        Externals::Hide => continue,
+                        Externals::Leaf => (Module::Package(package_name(&path)), None),
+                        Externals::Follow => (Module::File(path.clone()), Some(path)),
+                    },
+                    Target::Runtime(name) => match config.externals {
+                        Externals::Hide => continue,
+                        Externals::Leaf | Externals::Follow => (Module::Runtime(name), None),
+                    },
+                };
+                // Files already in the graph skip the filter: that keeps arrows into
+                // excluded entrypoints.
+                if let (Module::File(path), None) = (&module, graph.ids.get(&module))
+                    && !filter.is_match(path.strip_prefix(&root).unwrap_or(path))
+                {
+                    continue;
+                }
+                let (to, new) = graph.add(module);
+                *graph
+                    .edges
+                    .entry((file.from, to))
+                    .or_insert(EdgeKinds::NONE) |= kinds;
+                if new && let Some(path) = open {
+                    next.push((to, path));
                 }
             }
         }
@@ -259,6 +241,70 @@ pub(crate) fn build(config: &Config) -> Result<ModuleGraph> {
         depth += 1;
     }
     Ok(graph.finish(root))
+}
+
+/// What one file imports, ready to merge into the graph.
+struct Opened {
+    from: ModuleId,
+    /// Each import as written, the kinds it was found with, and where it leads (or why
+    /// it leads nowhere).
+    imports: Vec<(String, EdgeKinds, Result<Target, String>)>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+/// Reads one file, finds its imports and where each one leads. Runs on any thread.
+fn open(
+    from: ModuleId,
+    path: &Path,
+    config: &Config,
+    resolver: &Resolver,
+    allocator: &mut Allocator,
+) -> Opened {
+    let mut opened = Opened {
+        from,
+        imports: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    // Not JavaScript or TypeScript (`.css`, `.json`...): shown, never opened.
+    let Ok(source_type) = SourceType::from_path(path) else {
+        return opened;
+    };
+    let source = match fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(err) => {
+            opened.diagnostics.push(Diagnostic {
+                module: from,
+                message: format!("cannot read file: {err}"),
+                line: None,
+            });
+            return opened;
+        }
+    };
+    allocator.reset();
+    let parsed = parse(allocator, source_type, &source, config.edge_kinds);
+    opened
+        .diagnostics
+        .extend(parsed.diagnostics.into_iter().map(|d| {
+            Diagnostic {
+                module: from,
+                line: d
+                    .labels
+                    .first()
+                    .map(|label| line_of(&source, label.offset())),
+                message: d.message.to_string(),
+            }
+        }));
+    for import in parsed.imports {
+        for (kinds, require) in split_require(import.kinds) {
+            let target = resolver
+                .resolve(path, &import.specifier, require)
+                .map_err(|err| err.to_string());
+            opened
+                .imports
+                .push((import.specifier.clone(), kinds, target));
+        }
+    }
+    opened
 }
 
 /// The graph while it is being built. Ids follow the order files were found in.
