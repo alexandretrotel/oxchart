@@ -37,10 +37,12 @@ pub struct Config {
     ///
     /// With the default list, `import './a'` finds `./a.ts` before `./a.js`.
     pub extensions: Vec<String>,
-    /// A `tsconfig.json` that defines import shortcuts.
+    /// The tsconfig whose aliases to use, like `import x from '@/utils'`.
     ///
-    /// Set this if your code uses aliases from `compilerOptions.paths`, like
-    /// `import x from '@/utils'`. The older `baseUrl` option works too.
+    /// `None` finds it for you: each file uses the nearest `tsconfig.json` above it,
+    /// like TypeScript does. That works for monorepos where each package has its own.
+    /// Set a path only to use a file with another name, like `tsconfig.build.json`,
+    /// for every file. Both `compilerOptions.paths` and the older `baseUrl` work.
     pub tsconfig: Option<PathBuf>,
     /// Which build of a package to pick when it ships several.
     ///
