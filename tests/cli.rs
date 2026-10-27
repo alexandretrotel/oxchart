@@ -169,3 +169,39 @@ fn mermaid_format_from_flag_or_settings_file() {
     let out = oxchart(&dir, &["src/index.ts", "-q", "--format", "text"]);
     assert!(stdout(&out).starts_with("src/a.ts -> src/b.ts"));
 }
+
+#[test]
+fn output_extension_picks_the_format() {
+    let dir = app("extension");
+    for (file, start) in [
+        ("graph.svg", "<svg"),
+        ("graph.mmd", "flowchart LR"),
+        ("graph.txt", "src/a.ts -> src/b.ts"),
+    ] {
+        let out = oxchart(&dir, &["src/index.ts", "-q", "-o", file]);
+        assert!(out.status.success(), "{}", stderr(&out));
+        let written = fs::read_to_string(dir.join(file)).unwrap();
+        assert!(written.starts_with(start), "{file}: {written:.80}");
+    }
+    // `--format` wins over the extension.
+    let out = oxchart(
+        &dir,
+        &["src/index.ts", "-q", "-o", "graph.svg", "--format", "text"],
+    );
+    assert!(out.status.success());
+    assert!(
+        fs::read_to_string(dir.join("graph.svg"))
+            .unwrap()
+            .starts_with("src/")
+    );
+}
+
+#[test]
+fn piped_output_is_text_and_svg_can_be_asked_for() {
+    let dir = app("piped");
+    // Tests run with stdout piped, like `oxchart ... | grep`: no picture is opened.
+    assert!(stdout(&oxchart(&dir, &["src/index.ts", "-q"])).starts_with("src/a.ts"));
+    let out = oxchart(&dir, &["src/index.ts", "-q", "--format", "svg"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).starts_with("<svg"));
+}
