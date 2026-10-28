@@ -12,6 +12,9 @@
 //! - `import()` and `require()` can appear anywhere, even deep inside functions, so
 //!   finding them means walking the whole file. That walk is skipped when neither kind
 //!   is asked for.
+//! - `require()` only counts when it is the global one. A file that declares its own
+//!   `require` (a variable, function or parameter) calls that instead. Checking needs
+//!   `oxc_semantic`, so it only runs on files whose text contains `require`.
 //! - Only fixed paths can be followed: `'./a'` or `` `./a` ``. A computed path like
 //!   `require(name)` or `` import(`./${page}`) `` is reported as a warning and skipped.
 //!
@@ -25,11 +28,13 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    CallExpression, Expression, ImportDeclarationSpecifier, ImportExpression, Statement,
+    CallExpression, Expression, IdentifierReference, ImportDeclarationSpecifier, ImportExpression,
+    Statement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::Parser;
+use oxc_semantic::{Scoping, SemanticBuilder, SymbolFlags};
 use oxc_span::{SourceType, Span};
 
 use crate::config::EdgeKinds;
@@ -110,9 +115,13 @@ pub(crate) fn parse(
     }
 
     if edge_kinds.intersects(EdgeKinds::DYNAMIC | EdgeKinds::REQUIRE) {
+        // Links each `require` to its declaration. Skipped when the text has no `require`.
+        let semantic = (edge_kinds.contains(EdgeKinds::REQUIRE) && source.contains("require"))
+            .then(|| SemanticBuilder::new().build(&ret.program).semantic);
         let mut walker = Walker {
             out: &mut out,
             edge_kinds,
+            scoping: semantic.as_ref().map(|s| s.scoping()),
         };
         walker.visit_program(&ret.program);
     }
@@ -137,6 +146,7 @@ fn add(imports: &mut Vec<Import>, specifier: &str, kind: EdgeKinds, edge_kinds: 
 struct Walker<'o> {
     out: &'o mut Parsed,
     edge_kinds: EdgeKinds,
+    scoping: Option<&'o Scoping>,
 }
 
 impl Walker<'_> {
@@ -157,6 +167,19 @@ impl Walker<'_> {
             ),
         }
     }
+
+    /// True when `ident` is not declared in the file, or only with `declare` (TypeScript's
+    /// `declare const require: ...` describes the global one).
+    fn is_global(&self, ident: &IdentifierReference) -> bool {
+        let Some(scoping) = self.scoping else {
+            return true;
+        };
+        ident
+            .reference_id
+            .get()
+            .and_then(|id| scoping.get_reference(id).symbol_id())
+            .is_none_or(|symbol| scoping.symbol_flags(symbol).contains(SymbolFlags::Ambient))
+    }
 }
 
 impl<'a> Visit<'a> for Walker<'_> {
@@ -166,7 +189,9 @@ impl<'a> Visit<'a> for Walker<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        if it.callee.is_specific_id("require")
+        if let Expression::Identifier(callee) = &it.callee
+            && callee.name == "require"
+            && self.is_global(callee)
             && let [arg] = it.arguments.as_slice()
             && let Some(arg) = arg.as_expression()
         {
@@ -251,6 +276,21 @@ mod tests {
         );
         assert!(imports("const a = foo.require('./a');").is_empty());
         assert!(imports("const a = require('./a', 1);").is_empty());
+    }
+
+    #[test]
+    fn own_require_is_not_an_import() {
+        assert!(imports("function require(p) {} require('./a');").is_empty());
+        assert!(imports("const require = () => {}; require('./a');").is_empty());
+        assert!(imports("function f(require) { require('./a'); }").is_empty());
+        assert_eq!(
+            imports("function f(require) {} require('./a');"),
+            one("./a", R)
+        );
+        assert_eq!(
+            imports("declare const require: any; require('./a');"),
+            one("./a", R)
+        );
     }
 
     #[test]
