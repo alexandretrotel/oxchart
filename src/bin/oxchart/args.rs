@@ -1,18 +1,12 @@
 //! Command-line flags.
 
-use std::{
-    io::Write,
-    path::{Path, PathBuf, absolute},
-};
+use std::path::{PathBuf, absolute};
 
 use anyhow::Result;
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use oxchart::{
-    Config, EdgeKinds, Externals, ModuleGraph, TsconfigDiscovery, TsconfigOptions,
-    TsconfigReferences,
-    render::{Mermaid, Renderer, Text},
+    Config, EdgeKinds, Externals, Format, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
 };
-use serde::Deserialize;
 
 const EXAMPLES: &str = "\
 Examples:
@@ -23,69 +17,10 @@ Examples:
   oxchart src/index.ts -o graph.png       Also .jpg and .pdf
   oxchart src/index.ts -o graph.mmd       Mermaid chart, for GitHub or mermaid.live
   oxchart src/index.ts --format ascii     Draw the chart in the terminal
-  oxchart src/index.ts | grep react       One line per import, when piped
+  oxchart src/index.ts | pbcopy           Mermaid chart, when piped
 
 Settings can also live in oxchart.toml, in this folder or a parent one.
 Flags win over the file.";
-
-/// How to write the graph. Set with `--format` or `format` in oxchart.toml.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Format {
-    /// One line per import
-    Text,
-    /// A Mermaid flowchart
-    Mermaid,
-    /// A picture of the Mermaid flowchart
-    Svg,
-    /// The Mermaid flowchart drawn with text, for the terminal
-    Ascii,
-    /// A PNG image of the Mermaid flowchart
-    Png,
-    /// A JPEG image of the Mermaid flowchart
-    Jpeg,
-    /// A PDF of the Mermaid flowchart
-    Pdf,
-}
-
-impl Format {
-    /// The format a file name asks for: `.svg`, `.mmd` or `.mermaid`, else text.
-    pub fn of(path: &Path) -> Self {
-        match path.extension().and_then(|ext| ext.to_str()) {
-            Some("svg") => Self::Svg,
-            Some("png") => Self::Png,
-            Some("jpg" | "jpeg") => Self::Jpeg,
-            Some("pdf") => Self::Pdf,
-            Some("mmd" | "mermaid") => Self::Mermaid,
-            _ => Self::Text,
-        }
-    }
-
-    /// The file extension of formats that are opened in a viewer, not printed.
-    pub fn picture(self) -> Option<&'static str> {
-        match self {
-            Self::Svg => Some("svg"),
-            Self::Png => Some("png"),
-            Self::Jpeg => Some("jpg"),
-            Self::Pdf => Some("pdf"),
-            Self::Text | Self::Mermaid | Self::Ascii => None,
-        }
-    }
-
-    pub fn write(self, graph: &ModuleGraph, out: &mut dyn Write) -> Result<()> {
-        let mermaid = Mermaid::default();
-        match self {
-            Self::Text => Text::default().render(graph, out)?,
-            Self::Mermaid => mermaid.render(graph, out)?,
-            Self::Svg => out.write_all(mermaid.render_svg(graph)?.as_bytes())?,
-            Self::Ascii => out.write_all(mermaid.render_ascii(graph)?.as_bytes())?,
-            Self::Png => out.write_all(&mermaid.render_png(graph)?)?,
-            Self::Jpeg => out.write_all(&mermaid.render_jpeg(graph)?)?,
-            Self::Pdf => out.write_all(&mermaid.render_pdf(graph)?)?,
-        }
-        Ok(())
-    }
-}
 
 /// See which files of a JavaScript or TypeScript project import which.
 ///
@@ -147,12 +82,13 @@ pub struct Args {
     )]
     pub edges: Option<Vec<EdgeKinds>>,
 
-    /// How to write the graph [default: svg, opened, in a terminal; text when piped;
+    /// How to write the graph [default: svg, opened, in a terminal; mermaid when piped;
     /// from the extension with -o]
     #[arg(long, value_name = "FORMAT", verbatim_doc_comment)]
     pub format: Option<Format>,
 
-    /// Save the graph to this file; .svg, .png, .jpg, .pdf, .mmd and .txt pick the format
+    /// Save the graph to this file; .svg, .png, .jpg, .pdf and .txt (ascii) pick the
+    /// format, anything else is mermaid
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
 
