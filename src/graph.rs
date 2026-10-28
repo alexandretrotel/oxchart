@@ -154,16 +154,20 @@ pub struct Edge {
     pub kinds: EdgeKinds,
 }
 
+/// Why an import was not found: [`oxc_resolver`]'s own error. See [`Unresolved::reason`].
+pub type ResolveError = oxc_resolver::ResolveError;
+
 /// An import that points to nothing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Unresolved {
     /// The file with the import.
     pub from: ModuleId,
     /// The import as written, like `./missing` or `left-pad`.
     pub specifier: String,
-    /// Why it was not found, for people to read.
-    pub reason: String,
+    /// Why it was not found. Usually `NotFound`; other errors point to a broken
+    /// `package.json` or tsconfig.
+    pub reason: ResolveError,
 }
 
 /// A problem inside one file. The file stays in the graph; it may miss some imports.
@@ -266,7 +270,7 @@ struct Opened {
     from: ModuleId,
     /// Each import as written, the kinds it was found with, and where it leads (or why
     /// it leads nowhere).
-    imports: Vec<(String, EdgeKinds, Result<Target, String>)>,
+    imports: Vec<(String, EdgeKinds, Result<Target, ResolveError>)>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -314,9 +318,7 @@ fn open(
         }));
     for import in parsed.imports {
         for (kinds, require) in split_require(import.kinds) {
-            let target = resolver
-                .resolve(path, &import.specifier, require)
-                .map_err(|err| err.to_string());
+            let target = resolver.resolve(path, &import.specifier, require);
             opened
                 .imports
                 .push((import.specifier.clone(), kinds, target));

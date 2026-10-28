@@ -18,7 +18,7 @@ use anyhow::{Context, Result};
 use oxchart::{Config, EdgeKinds};
 use serde::Deserialize;
 
-use crate::args::Format;
+use crate::args::{Format, manual_tsconfig};
 
 /// Every setting is optional: a missing one keeps the default.
 #[derive(Debug, Deserialize)]
@@ -28,7 +28,7 @@ pub struct File {
     root: Option<PathBuf>,
     extensions: Option<Vec<String>>,
     tsconfig: Option<PathBuf>,
-    conditions: Option<Vec<String>>,
+    condition_names: Option<Vec<String>>,
     include: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
     max_depth: Option<usize>,
@@ -67,13 +67,13 @@ impl File {
             config.entrypoints.clone_from(entrypoints);
         }
         if let Some(extensions) = &self.extensions {
-            config.extensions.clone_from(extensions);
+            config.resolve.extensions.clone_from(extensions);
         }
-        if self.tsconfig.is_some() {
-            config.tsconfig.clone_from(&self.tsconfig);
+        if let (Some(tsconfig), Some(root)) = (&self.tsconfig, &config.root) {
+            config.resolve.tsconfig = manual_tsconfig(root.join(tsconfig));
         }
-        if let Some(conditions) = &self.conditions {
-            config.conditions.clone_from(conditions);
+        if let Some(condition_names) = &self.condition_names {
+            config.resolve.condition_names.clone_from(condition_names);
         }
         if let Some(include) = &self.include {
             config.include.clone_from(include);

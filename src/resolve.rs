@@ -6,15 +6,11 @@
 //!
 //! How it looks:
 //! - From the folder of the file that imports, not from the project root.
-//! - Trying each extension in `Config::extensions` when the import leaves it out.
-//! - Reading TypeScript's habit of writing the compiled name: `./a.js` finds `./a.ts`.
-//! - Using the aliases from the tsconfig: the nearest `tsconfig.json` above each file,
-//!   or the one in `Config::tsconfig` for every file.
-//! - For a package, picking the build that matches `Config::conditions`. Packages
-//!   without `exports` are read from their `module` field, then `main`.
+//! - With `Config::resolve`, passed as-is to `oxc_resolver`: extensions, tsconfig
+//!   aliases, package conditions... Only the `import` or `require` condition is added.
 //! - Treating imports with a scheme (`node:`, `bun:`, `cloudflare:`, Deno's `jsr:`,
-//!   `npm:` and `https:`), plus bare `bun`, as provided by the runtime. They are not
-//!   files on disk, so they are never looked up.
+//!   `npm:` and `https:`), plus bare `bun`, as provided by the runtime, unless a
+//!   tsconfig alias matches them first.
 //! - Following symlinks to the real file. Paths then start like `Config::root_dir`,
 //!   and monorepo packages (symlinks to your own folders) count as your own code.
 //!
@@ -23,11 +19,7 @@
 
 use std::path::{Path, PathBuf};
 
-use oxc_resolver::{
-    ResolveError, ResolveOptions, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
-};
-
-use crate::config::Config;
+use crate::{config::Config, graph::ResolveError};
 
 /// Where an import leads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,43 +43,16 @@ pub(crate) struct Resolver {
 }
 
 impl Resolver {
-    /// Sets up the lookup from the user's settings.
+    /// Sets up the lookup from [`Config::resolve`], adding the `import` or `require`
+    /// condition.
     pub(crate) fn new(config: &Config) -> Self {
-        let conditions = |extra: &str| {
-            let mut names = config.conditions.clone();
-            names.push(extra.into());
-            names
+        let with_condition = |extra: &str| {
+            let mut options = config.resolve.clone();
+            options.condition_names.push(extra.into());
+            options
         };
-        // TypeScript code imports `./a.js` to mean `./a.ts`: try the TypeScript file first.
-        let alias = |from: &str, to: &[&str]| (from.into(), to.iter().map(|&e| e.into()).collect());
-        let options = ResolveOptions {
-            extensions: config.extensions.clone(),
-            extension_alias: vec![
-                alias(".js", &[".ts", ".tsx", ".js"]),
-                alias(".jsx", &[".tsx", ".jsx"]),
-                alias(".mjs", &[".mts", ".mjs"]),
-                alias(".cjs", &[".cts", ".cjs"]),
-            ],
-            tsconfig: Some(match &config.tsconfig {
-                Some(path) => TsconfigDiscovery::Manual(TsconfigOptions {
-                    // A relative result is read from the current directory, like `root`.
-                    config_file: config.root.as_deref().unwrap_or(Path::new(".")).join(path),
-                    references: TsconfigReferences::Auto,
-                }),
-                // Each file uses its nearest `tsconfig.json`, like TypeScript does.
-                None => TsconfigDiscovery::Auto,
-            }),
-            condition_names: conditions("import"),
-            main_fields: vec!["module".into(), "main".into()],
-            // Report `fs`, `node:fs`... as built-ins instead of looking for them on disk.
-            builtin_modules: true,
-            ..ResolveOptions::default()
-        };
-        let import = oxc_resolver::Resolver::new(options.clone());
-        let require = import.clone_with_options(ResolveOptions {
-            condition_names: conditions("require"),
-            ..options
-        });
+        let import = oxc_resolver::Resolver::new(with_condition("import"));
+        let require = import.clone_with_options(with_condition("require"));
         Self { import, require }
     }
 
@@ -103,7 +68,7 @@ impl Resolver {
         specifier: &str,
         require: bool,
     ) -> Result<Target, ResolveError> {
-        if specifier == "bun" || has_scheme(specifier) {
+        if specifier == "bun" {
             return Ok(Target::Runtime(specifier.into()));
         }
         let resolver = if require { &self.require } else { &self.import };
@@ -126,6 +91,10 @@ impl Resolver {
             }
             // A bare Node built-in like `fs`, reported as `node:fs`.
             Err(ResolveError::Builtin { resolved, .. }) => Ok(Target::Runtime(resolved)),
+            // Not on disk and not a tsconfig alias: `bun:sqlite`, `jsr:@std/path`...
+            Err(ResolveError::NotFound(_)) if has_scheme(specifier) => {
+                Ok(Target::Runtime(specifier.into()))
+            }
             Err(err) => Err(err),
         }
     }
@@ -169,6 +138,8 @@ fn has_scheme(specifier: &str) -> bool {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fs;
+
+    use crate::config::{TsconfigDiscovery, TsconfigOptions, TsconfigReferences};
 
     use super::*;
 
@@ -242,7 +213,10 @@ pub(crate) mod tests {
         );
         let mut config = Config::new(["src/index.ts"]);
         config.root = Some(root.clone());
-        config.tsconfig = Some("tsconfig.json".into());
+        config.resolve.tsconfig = Some(TsconfigDiscovery::Manual(TsconfigOptions {
+            config_file: root.join("tsconfig.json"),
+            references: TsconfigReferences::Auto,
+        }));
         let r = Resolver::new(&config);
         let from = root.join("src/index.ts");
         assert_eq!(r.resolve(&from, "@/a", false), local(&root, "src/a.ts"));
@@ -344,6 +318,26 @@ pub(crate) mod tests {
         assert_eq!(
             r.resolve(&from, "https://deno.land/x/a.ts", false),
             runtime("https://deno.land/x/a.ts")
+        );
+    }
+
+    #[test]
+    fn tsconfig_alias_wins_over_scheme() {
+        let root = project(
+            "scheme-alias",
+            &[
+                ("src/index.ts", ""),
+                ("src/utils/a.ts", ""),
+                (
+                    "tsconfig.json",
+                    r#"{ "compilerOptions": { "paths": { "app:utils/*": ["./src/utils/*"] } } }"#,
+                ),
+            ],
+        );
+        let from = root.join("src/index.ts");
+        assert_eq!(
+            resolver().resolve(&from, "app:utils/a", false),
+            local(&root, "src/utils/a.ts")
         );
     }
 

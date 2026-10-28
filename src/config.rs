@@ -7,9 +7,17 @@ use std::{
     str::FromStr,
 };
 
+use crate::error::{Error, Result};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
-use crate::error::{Error, Result};
+/// How imports are looked up: [`oxc_resolver`]'s own options. See [`Config::resolve`].
+pub type ResolveOptions = oxc_resolver::ResolveOptions;
+/// Which tsconfig each file uses: the nearest one, or one for every file.
+pub type TsconfigDiscovery = oxc_resolver::TsconfigDiscovery;
+/// A tsconfig used for every file. See [`TsconfigDiscovery`].
+pub type TsconfigOptions = oxc_resolver::TsconfigOptions;
+/// Whether a tsconfig's `references` are followed. See [`TsconfigOptions`].
+pub type TsconfigReferences = oxc_resolver::TsconfigReferences;
 
 /// Settings for [`build_graph`](crate::build_graph).
 ///
@@ -35,26 +43,22 @@ pub struct Config {
     ///
     /// `None` uses the current directory.
     pub root: Option<PathBuf>,
-    /// File extensions to try, in order, when an import leaves one out.
+    /// How imports are looked up. Passed as-is to [`oxc_resolver`]; see its docs.
     ///
-    /// With the default list, `import './a'` finds `./a.ts` before `./a.js`.
-    pub extensions: Vec<String>,
-    /// The tsconfig whose aliases to use, like `import x from '@/utils'`.
+    /// [`Config::new`] sets it up for a TypeScript project:
     ///
-    /// `None` finds it for you: each file uses the nearest `tsconfig.json` above it,
-    /// like TypeScript does. That works for monorepos where each package has its own.
-    /// Set a path only to use a file with another name, like `tsconfig.build.json`,
-    /// for every file. Both `compilerOptions.paths` and the older `baseUrl` work.
-    pub tsconfig: Option<PathBuf>,
-    /// Which build of a package to pick when it ships several.
+    /// - `extensions`: TypeScript first, so `import './a'` finds `./a.ts` before `./a.js`
+    /// - `extension_alias`: `./a.js` also finds `./a.ts`, as TypeScript code writes it
+    /// - `tsconfig`: each file uses the nearest `tsconfig.json` above it, like TypeScript
+    /// - `condition_names`: `["node"]`, the Node build of packages. For a browser app,
+    ///   add `"browser"`. `"import"` or `"require"` is added for you, depending on how
+    ///   each file imports the package.
+    /// - `main_fields`: `["module", "main"]`, for packages without `exports`
+    /// - `builtin_modules`: `fs` and `node:fs` are runtime modules, not files
     ///
-    /// Some packages publish different files for Node, for browsers, and so on, keyed
-    /// by name in their `package.json` `exports`. The default, `["node"]`, picks the
-    /// Node build. For a browser app, add `"browser"`.
-    ///
-    /// `"import"` or `"require"` is added for you, depending on how each file imports
-    /// the package. `"default"` always matches, so you never need to list it.
-    pub conditions: Vec<String>,
+    /// Relative paths in it, like a manual tsconfig, start from the current directory,
+    /// not from [`root`](Self::root).
+    pub resolve: ResolveOptions,
     /// Keep only files matching these patterns, like `src/**`.
     ///
     /// Patterns start from [`root`](Self::root). `*` stays in one folder, `**` crosses
@@ -86,13 +90,7 @@ impl Config {
         Self {
             entrypoints: entrypoints.into_iter().map(Into::into).collect(),
             root: None,
-            extensions: [
-                ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json",
-            ]
-            .map(String::from)
-            .into(),
-            tsconfig: None,
-            conditions: vec!["node".into()],
+            resolve: default_resolve(),
             include: Vec::new(),
             exclude: Vec::new(),
             max_depth: None,
@@ -133,6 +131,31 @@ impl Config {
                 .transpose()?,
             exclude: glob_set(&self.exclude)?,
         })
+    }
+}
+
+/// The lookup in [`Config::new`], documented on [`Config::resolve`].
+fn default_resolve() -> ResolveOptions {
+    // TypeScript code imports `./a.js` to mean `./a.ts`: try the TypeScript file first.
+    let alias = |from: &str, to: &[&str]| (from.into(), to.iter().map(|&e| e.into()).collect());
+    ResolveOptions {
+        extensions: [
+            ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json",
+        ]
+        .map(String::from)
+        .into(),
+        extension_alias: vec![
+            alias(".js", &[".ts", ".tsx", ".js"]),
+            alias(".jsx", &[".tsx", ".jsx"]),
+            alias(".mjs", &[".mts", ".mjs"]),
+            alias(".cjs", &[".cts", ".cjs"]),
+        ],
+        tsconfig: Some(TsconfigDiscovery::Auto),
+        condition_names: vec!["node".into()],
+        main_fields: vec!["module".into(), "main".into()],
+        // Report `fs`, `node:fs`... as built-ins instead of looking for them on disk.
+        builtin_modules: true,
+        ..ResolveOptions::default()
     }
 }
 
@@ -346,7 +369,10 @@ mod tests {
     fn defaults_cover_ts_jsx_esm_and_cjs() {
         let c = config();
         for ext in [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"] {
-            assert!(c.extensions.iter().any(|e| e == ext), "missing {ext}");
+            assert!(
+                c.resolve.extensions.iter().any(|e| e == ext),
+                "missing {ext}"
+            );
         }
     }
 

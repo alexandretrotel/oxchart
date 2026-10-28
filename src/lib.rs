@@ -28,9 +28,12 @@ mod parse;
 pub mod render;
 mod resolve;
 
-pub use config::{Config, EdgeKinds, Externals};
+pub use config::{
+    Config, EdgeKinds, Externals, ResolveOptions, TsconfigDiscovery, TsconfigOptions,
+    TsconfigReferences,
+};
 pub use error::{Error, Result};
-pub use graph::{Diagnostic, Edge, Module, ModuleGraph, ModuleId, Unresolved};
+pub use graph::{Diagnostic, Edge, Module, ModuleGraph, ModuleId, ResolveError, Unresolved};
 
 /// Builds the graph of every file reachable from the entrypoints.
 ///

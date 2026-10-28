@@ -8,7 +8,8 @@ use std::{
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use oxchart::{
-    Config, EdgeKinds, Externals, ModuleGraph,
+    Config, EdgeKinds, Externals, ModuleGraph, TsconfigDiscovery, TsconfigOptions,
+    TsconfigReferences,
     render::{Mermaid, Renderer, Text},
 };
 use serde::Deserialize;
@@ -109,7 +110,7 @@ pub struct Args {
     pub root: Option<PathBuf>,
 
     /// Extensions to try, in order, when an import has none [default: .ts,.tsx,...]
-    #[arg(long = "ext", value_name = "EXT", value_delimiter = ',')]
+    #[arg(long, value_name = "EXT", value_delimiter = ',')]
     pub extensions: Option<Vec<String>>,
 
     /// tsconfig to use for every file [default: nearest tsconfig.json of each file]
@@ -117,8 +118,8 @@ pub struct Args {
     pub tsconfig: Option<PathBuf>,
 
     /// Package build to pick, like browser; repeat or use commas [default: node]
-    #[arg(long = "condition", value_name = "NAME", value_delimiter = ',')]
-    pub conditions: Option<Vec<String>>,
+    #[arg(long, value_name = "NAME", value_delimiter = ',')]
+    pub condition_names: Option<Vec<String>>,
 
     /// Keep only files matching this glob, like 'src/**'; repeat for more
     #[arg(long, value_name = "GLOB")]
@@ -177,13 +178,13 @@ impl Args {
             config.root = Some(absolute(root)?);
         }
         if let Some(extensions) = &self.extensions {
-            config.extensions.clone_from(extensions);
+            config.resolve.extensions.clone_from(extensions);
         }
         if let Some(tsconfig) = &self.tsconfig {
-            config.tsconfig = Some(absolute(tsconfig)?);
+            config.resolve.tsconfig = manual_tsconfig(absolute(tsconfig)?);
         }
-        if let Some(conditions) = &self.conditions {
-            config.conditions.clone_from(conditions);
+        if let Some(condition_names) = &self.condition_names {
+            config.resolve.condition_names.clone_from(condition_names);
         }
         if let Some(include) = &self.include {
             config.include.clone_from(include);
@@ -202,4 +203,12 @@ impl Args {
         }
         Ok(())
     }
+}
+
+/// A tsconfig used for every file, instead of the nearest one.
+pub fn manual_tsconfig(config_file: PathBuf) -> Option<TsconfigDiscovery> {
+    Some(TsconfigDiscovery::Manual(TsconfigOptions {
+        config_file,
+        references: TsconfigReferences::Auto,
+    }))
 }
