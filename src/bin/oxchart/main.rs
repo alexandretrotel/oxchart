@@ -20,9 +20,9 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use oxchart::{Config, ModuleGraph};
+use oxchart::{Config, Format, ModuleGraph};
 
-use crate::args::{Args, Format};
+use crate::args::Args;
 
 fn main() -> ExitCode {
     match run(&Args::parse()) {
@@ -51,14 +51,14 @@ fn run(args: &Args) -> Result<()> {
         format = settings.format;
     }
     args.apply(&mut config)?;
-    // Asked for, else from the file name, else a picture for people, text for pipes.
+    // Asked for, else from the file name, else a picture for people, Mermaid for pipes.
     let format = args
         .format
         .or(format)
         .unwrap_or_else(|| match &args.output {
             Some(path) => Format::of(path),
             None if io::stdout().is_terminal() => Format::Svg,
-            None => Format::Text,
+            None => Format::Mermaid,
         });
     if config.entrypoints.is_empty() {
         bail!(
@@ -81,7 +81,7 @@ fn run(args: &Args) -> Result<()> {
         }
         // A picture in a terminal: save it where the system keeps temporary files, and
         // open it. Named after the project, so each run replaces the last picture.
-        None if terminal && let Some(extension) = format.picture() => {
+        None if terminal && let Some(extension) = picture(format) => {
             let name = graph.root().file_name().unwrap_or("graph".as_ref());
             let path = env::temp_dir().join(format!("oxchart-{}.{extension}", name.display()));
             save(format, &graph, &path)?;
@@ -89,7 +89,7 @@ fn run(args: &Args) -> Result<()> {
         }
         None => {
             let mut out = BufWriter::new(io::stdout().lock());
-            format.write(&graph, &mut out)?;
+            oxchart::render(&graph, format, &mut out)?;
             out.flush()?;
             None
         }
@@ -117,10 +117,21 @@ fn run(args: &Args) -> Result<()> {
     Ok(())
 }
 
+/// The file extension of formats that are opened in a viewer, not printed.
+fn picture(format: Format) -> Option<&'static str> {
+    match format {
+        Format::Svg => Some("svg"),
+        Format::Png => Some("png"),
+        Format::Jpeg => Some("jpg"),
+        Format::Pdf => Some("pdf"),
+        _ => None,
+    }
+}
+
 fn save(format: Format, graph: &ModuleGraph, path: &Path) -> Result<()> {
     let file = File::create(path).with_context(|| format!("cannot write {}", path.display()))?;
     let mut out = BufWriter::new(file);
-    format.write(graph, &mut out)?;
+    oxchart::render(graph, format, &mut out)?;
     out.flush()?;
     Ok(())
 }
