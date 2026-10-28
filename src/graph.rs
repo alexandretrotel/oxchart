@@ -36,7 +36,7 @@ use rustc_hash::FxHashMap;
 use crate::{
     config::{Config, EdgeKinds, Externals},
     error::{Error, Result},
-    parse::parse,
+    parse::{Component, component_scripts, parse},
     resolve::{Resolver, Target},
 };
 
@@ -376,9 +376,12 @@ fn open(
         imports: Vec::new(),
         diagnostics: Vec::new(),
     };
-    // Not JavaScript or TypeScript (`.css`, `.json`...): shown, never opened.
-    let Ok(source_type) = SourceType::from_path(path) else {
-        return opened;
+    let component = Component::of(path);
+    // Not JavaScript, TypeScript or a component (`.css`, `.json`...): shown, never opened.
+    let source_type = match SourceType::from_path(path) {
+        Ok(source_type) => Some(source_type),
+        Err(_) if component.is_some() => None,
+        Err(_) => return opened,
     };
     let source = match fs::read_to_string(path) {
         Ok(source) => source,
@@ -390,6 +393,11 @@ fn open(
             });
             return opened;
         }
+    };
+    let (source_type, source) = match (source_type, component) {
+        (Some(source_type), _) => (source_type, source),
+        (None, Some(component)) => component_scripts(&source, component),
+        (None, None) => return opened,
     };
     allocator.reset();
     let parsed = parse(allocator, source_type, &source, config.edge_kinds);
@@ -758,6 +766,37 @@ mod tests {
                 ("src/index.ts".into(), Some(3))
             ]
         );
+    }
+
+    #[test]
+    fn component_files_are_opened() {
+        let root = project(
+            "graph-components",
+            &[
+                ("src/index.ts", "import './App.vue';"),
+                (
+                    "src/App.vue",
+                    "<template><Card /></template>\n<script setup lang=\"ts\">\nimport Card from './Card.svelte';\nimport './missing';\nrequire(name);\n</script>",
+                ),
+                ("src/Card.svelte", "<script>import './Page.astro';</script>"),
+                ("src/Page.astro", "---\nimport './util';\n---\n<p />"),
+                ("src/util.ts", ""),
+            ],
+        );
+        let g = build(&config(&root)).unwrap();
+        assert_eq!(
+            edges(&g),
+            [
+                edge("src/App.vue", "src/Card.svelte", S),
+                edge("src/Card.svelte", "src/Page.astro", S),
+                edge("src/Page.astro", "src/util.ts", S),
+                edge("src/index.ts", "src/App.vue", S),
+            ]
+        );
+        assert_eq!(g.unresolved().len(), 1);
+        // Line numbers count from the top of the file, not of the script.
+        let lines: Vec<_> = g.diagnostics().iter().map(|d| d.line).collect();
+        assert_eq!(lines, [Some(5)]);
     }
 
     #[test]

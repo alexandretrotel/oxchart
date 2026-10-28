@@ -21,6 +21,9 @@
 //! - Only fixed paths can be followed: `'./a'` or `` `./a` ``. A computed path like
 //!   `require(name)` or `` import(`./${page}`) `` is reported as a warning and skipped.
 //!
+//! - Files that mix markup and scripts ([`COMPONENTS`]: `.vue`, `.svelte`, `.astro`) are
+//!   read through their scripts only. See [`component_scripts`].
+//!
 //! What it returns:
 //! - One entry per imported path, with every way the file imports it. Top-level imports
 //!   come first, then `import()`/`require()`, each in the order they appear.
@@ -28,6 +31,8 @@
 //!   looked up on disk.
 //! - Syntax errors as diagnostics. oxc recovers from small errors and keeps every
 //!   import. On a serious error it gives up on the file, which then has no imports.
+
+use std::path::Path;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
@@ -174,6 +179,109 @@ pub(crate) fn parse(
         walker.visit_program(&ret.program);
     }
     out
+}
+
+/// A kind of file that mixes markup and scripts, read through its scripts only.
+#[derive(Debug)]
+pub(crate) struct Component {
+    /// The file extension, without the dot.
+    pub extension: &'static str,
+    /// Whether a `---` frontmatter at the top holds TypeScript, like in Astro.
+    pub frontmatter: bool,
+}
+
+/// Every [`Component`] kind. Add one here to read a new kind of file.
+pub(crate) const COMPONENTS: &[Component] = &[
+    Component {
+        extension: "vue",
+        frontmatter: false,
+    },
+    Component {
+        extension: "svelte",
+        frontmatter: false,
+    },
+    Component {
+        extension: "astro",
+        frontmatter: true,
+    },
+];
+
+impl Component {
+    /// The component kind of `path`, from its extension.
+    pub(crate) fn of(path: &Path) -> Option<&'static Self> {
+        let extension = path.extension()?;
+        COMPONENTS.iter().find(|c| extension == c.extension)
+    }
+}
+
+/// Keeps only the scripts of a [`Component`] file: the `<script>` blocks, plus the
+/// `---` frontmatter if it has one. Every other byte becomes a space and newlines stay,
+/// so offsets and line numbers still match the file.
+///
+/// The scripts are TypeScript if one says `lang="ts"` (always with a frontmatter), with
+/// JSX if one says `lang="tsx"` or `lang="jsx"`.
+pub(crate) fn component_scripts(source: &str, component: &Component) -> (SourceType, String) {
+    let mut keep = Vec::new();
+    let (mut ts, mut jsx) = (component.frontmatter, false);
+    if component.frontmatter {
+        let start = source.len() - source.trim_start().len();
+        if let Some(body) = source[start..].strip_prefix("---")
+            && let Some(end) = body.find("\n---")
+        {
+            keep.push((start + 3, start + 3 + end));
+        }
+    }
+    // ASCII lowercasing keeps byte offsets, so `<SCRIPT>` works too.
+    let lower = source.to_ascii_lowercase();
+    let mut at = 0;
+    while let Some(found) = lower[at..].find("<script") {
+        let open = at + found;
+        at = open + "<script".len();
+        if !lower[at..].starts_with(|c: char| c.is_ascii_whitespace() || c == '>') {
+            continue; // `<scripts>`, not a script
+        }
+        let Some(tag_end) = lower[open..].find('>').map(|i| open + i) else {
+            break;
+        };
+        let tag = &lower[open..tag_end];
+        if tag.ends_with('/') {
+            continue; // `<script src="..." />` has no body
+        }
+        let Some(close) = lower[tag_end..].find("</script").map(|i| tag_end + i) else {
+            break;
+        };
+        let lang = tag.split_once("lang=").map_or("", |(_, rest)| {
+            rest.trim_start_matches(['"', '\''])
+                .split(['"', '\'', ' ', '/'])
+                .next()
+                .unwrap_or("")
+        });
+        ts |= lang.starts_with("ts");
+        jsx |= matches!(lang, "tsx" | "jsx");
+        keep.push((tag_end + 1, close));
+        at = close;
+    }
+
+    let mut bytes = source.as_bytes().to_vec();
+    let mut kept = keep.iter().peekable();
+    for (i, b) in bytes.iter_mut().enumerate() {
+        while kept.next_if(|(_, end)| *end <= i).is_some() {}
+        let inside = kept.peek().is_some_and(|(start, _)| *start <= i);
+        if !inside && *b != b'\n' {
+            *b = b' ';
+        }
+    }
+    let ext = match (ts, jsx) {
+        (true, true) => "tsx",
+        (true, false) => "ts",
+        (false, true) => "jsx",
+        (false, false) => "js",
+    };
+    (
+        SourceType::from_extension(ext).unwrap_or_default(),
+        // Kept ranges start after `>` and end before `<`, so no character is cut in half.
+        String::from_utf8(bytes).expect("kept ranges end on ASCII characters"),
+    )
 }
 
 /// The path in a `/// <reference path="..." />` comment. `text` is the comment after `//`.
@@ -332,6 +440,61 @@ mod tests {
         assert!(imports("// <reference path=\"./a\" />").is_empty());
         assert!(imports("/* <reference path=\"./a\" /> */").is_empty());
         assert!(imports("let x;\n/// <reference path=\"./a\" />").is_empty());
+    }
+
+    fn component(ext: &str, source: &str) -> (Vec<(String, EdgeKinds)>, Parsed) {
+        let path = format!("a.{ext}");
+        let (source_type, scripts) =
+            component_scripts(source, Component::of(path.as_ref()).unwrap());
+        assert_eq!(scripts.len(), source.len());
+        assert_eq!(scripts.lines().count(), source.lines().count());
+        let p = parse(&Allocator::default(), source_type, &scripts, EdgeKinds::ALL);
+        let got = p
+            .imports
+            .iter()
+            .map(|i| (i.specifier.clone(), i.kinds))
+            .collect();
+        (got, p)
+    }
+
+    #[test]
+    fn vue_and_svelte_scripts() {
+        let vue = "<template>\n  <A :x=\"import('./no')\" />é\n</template>\n\
+                   <script setup lang=\"ts\">\nimport A from './A.vue';\n\
+                   const x = <T,>(y: T) => y;\n</script>\n\
+                   <script>\nexport default { name: 'x' };\n</script>\n\
+                   <style>@import './c.css';</style>";
+        let (got, p) = component("vue", vue);
+        assert_eq!(got, one("./A.vue", S));
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+
+        let svelte = "<SCRIPT context=\"module\">import './a';</SCRIPT>\n\
+                      <script lang='ts'>import type { B } from './b';</script>\n\
+                      <scripts>import './no';</scripts><script src=\"./no.js\" />\n\
+                      {#if x}<p>{x}</p>{/if}";
+        assert_eq!(
+            component("svelte", svelte).0,
+            vec![("./a".into(), S), ("./b".into(), T)]
+        );
+        assert_eq!(
+            component("vue", "<script lang=\"tsx\">const a = <div />;</script>")
+                .1
+                .diagnostics,
+            vec![]
+        );
+        assert!(component("vue", "<template><p /></template>").0.is_empty());
+    }
+
+    #[test]
+    fn astro_frontmatter_and_scripts() {
+        let astro = "\n---\nimport Layout from './Layout.astro';\nconst a: number = 1;\n---\n\
+                     <Layout>{a}</Layout>\n<script>import './client';</script>";
+        let (got, p) = component("astro", astro);
+        assert_eq!(
+            got,
+            vec![("./Layout.astro".into(), S), ("./client".into(), S)]
+        );
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
     }
 
     #[test]
