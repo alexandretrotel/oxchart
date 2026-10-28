@@ -9,6 +9,9 @@
 //! - An import counts as type-only (`TYPE_ONLY`) when it can only bring in types:
 //!   `import type`, `export type`, or every imported name marked `type`. If even one
 //!   name is real code, it is a plain import (`STATIC`).
+//! - TypeScript's `import x = require('./a')` is a top-level import too (`STATIC`, or
+//!   `TYPE_ONLY` with `import type`). `/// <reference path="a.d.ts" />` before the first
+//!   statement only brings in types (`TYPE_ONLY`); its path is always relative to the file.
 //! - `import()` and `require()` can appear anywhere, even deep inside functions, so
 //!   finding them means walking the whole file. That walk is skipped when neither kind
 //!   is asked for.
@@ -28,14 +31,14 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    CallExpression, Expression, IdentifierReference, ImportDeclarationSpecifier, ImportExpression,
-    Statement,
+    CallExpression, Declaration, Expression, IdentifierReference, ImportDeclarationSpecifier,
+    ImportExpression, Statement, TSModuleReference,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::Parser;
 use oxc_semantic::{Scoping, SemanticBuilder, SymbolFlags};
-use oxc_span::{SourceType, Span};
+use oxc_span::{GetSpan, SourceType, Span};
 
 use crate::config::EdgeKinds;
 
@@ -67,7 +70,41 @@ pub(crate) fn parse(
         diagnostics: ret.diagnostics.into_vec(),
     };
 
+    // Triple-slash directives only count before the first statement.
+    let body_start = ret
+        .program
+        .body
+        .first()
+        .map_or(u32::MAX, |s| s.span().start);
+    for comment in &ret.program.comments {
+        if comment.is_line()
+            && comment.span.end <= body_start
+            && let Some(path) = reference_path(comment.content_span().source_text(source))
+        {
+            let specifier = if path.starts_with('.') || path.starts_with('/') {
+                path.to_string()
+            } else {
+                format!("./{path}")
+            };
+            add(
+                &mut out.imports,
+                &specifier,
+                EdgeKinds::TYPE_ONLY,
+                edge_kinds,
+            );
+        }
+    }
+
     for stmt in &ret.program.body {
+        // `export import a = require('./a')` wraps the import in an export.
+        let import_equals = match stmt {
+            Statement::TSImportEqualsDeclaration(decl) => Some(decl),
+            Statement::ExportDeclaration(decl) => match &decl.declaration {
+                Declaration::TSImportEqualsDeclaration(decl) => Some(decl),
+                _ => None,
+            },
+            _ => None,
+        };
         let (source, kind) = match stmt {
             Statement::ImportDeclaration(decl) => {
                 let all_type = decl.import_kind.is_type()
@@ -107,6 +144,17 @@ pub(crate) fn parse(
                 };
                 (&decl.source, kind)
             }
+            _ if let Some(decl) = import_equals => {
+                let TSModuleReference::ExternalModuleReference(r) = &decl.module_reference else {
+                    continue;
+                };
+                let kind = if decl.import_kind.is_type() {
+                    EdgeKinds::TYPE_ONLY
+                } else {
+                    EdgeKinds::STATIC
+                };
+                (&r.expression, kind)
+            }
             _ => continue,
         };
         if let Some(specifier) = source.value.as_str() {
@@ -126,6 +174,18 @@ pub(crate) fn parse(
         walker.visit_program(&ret.program);
     }
     out
+}
+
+/// The path in a `/// <reference path="..." />` comment. `text` is the comment after `//`.
+fn reference_path(text: &str) -> Option<&str> {
+    let rest = text
+        .strip_prefix('/')?
+        .trim_start()
+        .strip_prefix("<reference")?;
+    let rest = &rest[rest.find("path=")? + "path=".len()..];
+    let quote = rest.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+    let rest = &rest[1..];
+    Some(&rest[..rest.find(quote)?]).filter(|p| !p.is_empty())
 }
 
 /// Adds one import. If the path is already listed, adds `kind` to it instead.
@@ -247,6 +307,31 @@ mod tests {
         assert_eq!(imports("export type { A } from './a';"), one("./a", T));
         assert_eq!(imports("export { type A } from './a';"), one("./a", T));
         assert_eq!(imports("export type * from './a';"), one("./a", T));
+    }
+
+    #[test]
+    fn import_equals_require() {
+        assert_eq!(imports("import a = require('./a');"), one("./a", S));
+        assert_eq!(imports("export import a = require('./a');"), one("./a", S));
+        assert_eq!(imports("import type a = require('./a');"), one("./a", T));
+        assert!(imports("namespace N { export const x = 1; } import a = N.x;").is_empty());
+    }
+
+    #[test]
+    fn reference_paths() {
+        assert_eq!(
+            imports("/// <reference path=\"./a.d.ts\" />"),
+            one("./a.d.ts", T)
+        );
+        assert_eq!(
+            imports("/// <reference path='a.d.ts'/>\nlet x;"),
+            one("./a.d.ts", T)
+        );
+        assert_eq!(imports("/// <reference path=\"../b\" />"), one("../b", T));
+        assert!(imports("/// <reference types=\"node\" />").is_empty());
+        assert!(imports("// <reference path=\"./a\" />").is_empty());
+        assert!(imports("/* <reference path=\"./a\" /> */").is_empty());
+        assert!(imports("let x;\n/// <reference path=\"./a\" />").is_empty());
     }
 
     #[test]
