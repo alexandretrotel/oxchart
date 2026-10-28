@@ -3,33 +3,52 @@
 See which files of a JavaScript or TypeScript project import which.
 
 Give oxchart the file your app starts from. It follows every import, draws the graph
-as a picture and opens it.
+as a picture and opens it. Here in the [zustand](https://github.com/pmndrs/zustand)
+repository:
 
 ```console
 $ oxchart src/index.ts
-opened /tmp/oxchart-my-app.svg
-3 modules, 2 imports, 0 not found, 0 problems in files
+opened /var/folders/.../T/oxchart-zustand.svg
+3 modules, 3 imports, 0 not found, 0 problems in files, in 3.49ms (build 694.96µs, render 2.73ms)
 ```
 
-Here is [zustand](https://github.com/pmndrs/zustand) v5.0.16, drawn by oxchart:
+The summary goes to stderr. It ends with the time taken: to build the graph, then to
+write or draw it.
+
+Here is all of zustand v5.0.16, with its packages:
 
 ![Import graph of zustand v5.0.16](assets/zustand.svg)
 
-Made with this command, run in the zustand repository:
-
-```sh
-oxchart src/index.ts src/vanilla.ts src/middleware.ts src/middleware/immer.ts \
+```console
+$ oxchart src/index.ts src/vanilla.ts src/middleware.ts src/middleware/immer.ts \
   src/shallow.ts src/traditional.ts --externals leaf -o zustand.svg
+18 modules, 18 imports, 0 not found, 0 problems in files, in 10.94ms (build 2.84ms, render 7.73ms)
 ```
 
 When the output is piped, it writes the [Mermaid](https://mermaid.js.org) chart
 instead, to paste on GitHub or in [mermaid.live](https://mermaid.live):
 
 ```console
-$ oxchart src/index.ts | head -3
+$ oxchart src/index.ts | head -4
 flowchart LR
-  m0["src/a.ts"]:::file
-  m1["src/b.ts"]:::file
+  m0["src/index.ts"]:::file
+  m1["src/react.ts"]:::file
+  m2["src/vanilla.ts"]:::file
+3 modules, 3 imports, 0 not found, 0 problems in files, in 615.88µs (build 544.50µs, render 18.25µs)
+```
+
+Or draw it right in the terminal:
+
+```console
+$ oxchart src/index.ts --format ascii
+┌──────────────┐              ┌──────────────┐              ┌────────────────┐
+│              │              │              │              │                │
+│ src/index.ts ├──re-export──►│ src/react.ts ├───static────►│ src/vanilla.ts │
+│              │              │              │              │                │
+└──────────────┘              └──────────────┘              └────────────────┘
+        │                                                            ▲
+        └─────────────────────────re-export──────────────────────────┘
+3 modules, 3 imports, 0 not found, 0 problems in files, in 3.62ms (build 587.83µs, render 2.98ms)
 ```
 
 ## Install
