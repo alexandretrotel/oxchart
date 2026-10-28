@@ -54,7 +54,7 @@ $ oxchart src/index.ts --format ascii
 ## Install
 
 ```sh
-cargo install --git https://github.com/alexandretrotel/oxchart
+cargo install oxchart
 ```
 
 ## Use
@@ -80,7 +80,6 @@ Run `oxchart --help` for every option.
 By default oxchart:
 
 - starts from your `package.json`'s `exports["."]`, `main` or `bin` when no entrypoint is given
-
 - follows `import`, `export ... from` and `require()`, but not `import()` or `import type`
 - reads the scripts of `.vue`, `.svelte` and `.astro` files (`<script>` and frontmatter)
 - hides npm packages and runtime modules (`node:fs`, `bun:sqlite`...)
@@ -105,6 +104,13 @@ max-depth = 4
 Paths in the file start from the file's folder.
 
 ## Library
+
+```sh
+cargo add oxchart --no-default-features             # the graph only
+cargo add oxchart --no-default-features -F render   # plus the Mermaid chart
+```
+
+The default `cli` feature builds the `oxchart` command and pulls in everything it needs.
 
 ```rust
 let mut config = oxchart::Config::new(["src/index.ts"]);

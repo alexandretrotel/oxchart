@@ -7,6 +7,14 @@ license = "MIT"
 description = "Fast module graph builder powered by oxc, with pluggable renderers like Mermaid."
 keywords = ["oxc", "module-graph", "mermaid", "javascript", "typescript"]
 categories = ["development-tools", "command-line-utilities"]
+repository = "https://github.com/alexandretrotel/oxchart"
+documentation = "https://docs.rs/oxchart"
+readme = "README.md"
+rust-version = "1.97"
+exclude = ["/assets", "/.github", "/rust-toolchain.toml"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = ["cli"]
