@@ -29,7 +29,8 @@ Flags win over the file.";
 #[derive(Debug, Parser)]
 #[command(version, after_help = EXAMPLES)]
 pub struct Args {
-    /// Files or folders to start from, found like imports: src/index.ts, src/index or src
+    /// Files or folders to start from, found like imports: src/index.ts, src/index or src.
+    /// Default: exports["."], main or bin of package.json
     pub entrypoints: Vec<PathBuf>,
 
     /// Read settings from this file instead of looking for oxchart.toml

@@ -4,10 +4,13 @@
 //! 1. the defaults of `Config::new`,
 //! 2. `oxchart.toml`, found in the current folder or a parent one (`file`),
 //! 3. the flags (`args`).
+//!
+//! With no entrypoint in any of them, the project's `package.json` names one (`package`).
 
 mod args;
 mod file;
 mod output;
+mod package;
 
 use std::{
     env,
@@ -61,10 +64,14 @@ fn run(args: &Args) -> Result<()> {
             None => Format::Mermaid,
         });
     if config.entrypoints.is_empty() {
+        config.entrypoints = package::entrypoints(&config)?;
+    }
+    if config.entrypoints.is_empty() {
         bail!(
             "no entrypoint given\n\n\
              Pass the file your app starts from, like `oxchart src/index.ts`,\n\
-             or set `entrypoints` in oxchart.toml. See `oxchart --help`."
+             set `entrypoints` in oxchart.toml, or `main` in package.json.\n\
+             See `oxchart --help`."
         );
     }
 

@@ -78,6 +78,8 @@ Run `oxchart --help` for every option.
 
 By default oxchart:
 
+- starts from your `package.json`'s `exports["."]`, `main` or `bin` when no entrypoint is given
+
 - follows `import`, `export ... from` and `require()`, but not `import()` or `import type`
 - hides npm packages and runtime modules (`node:fs`, `bun:sqlite`...)
 - uses the nearest `tsconfig.json` of each file for path aliases like `@/utils`

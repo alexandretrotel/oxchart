@@ -128,6 +128,66 @@ fn no_entrypoint_explains_what_to_do() {
 }
 
 #[test]
+fn package_json_gives_the_default_entrypoint() {
+    let first = |name: &str, package: &str| {
+        let dir = project(
+            name,
+            &[
+                ("package.json", package),
+                ("src/index.ts", ""),
+                ("src/node.ts", ""),
+                ("src/cli.ts", ""),
+                ("src/tool.ts", ""),
+            ],
+        );
+        let out = oxchart(&dir, &["-q"]);
+        assert!(out.status.success(), "{}", stderr(&out));
+        stdout(&out)
+    };
+    let exports = r#"{ "name": "app", "exports": { ".": { "node": "./src/node.ts", "default": "./src/index.ts" } }, "main": "src/cli.ts" }"#;
+    assert!(first("pkg-exports", exports).contains("src/node.ts"));
+    let only_subpaths =
+        r#"{ "name": "app", "exports": { "./a": "./src/node.ts" }, "main": "src/index" }"#;
+    assert!(first("pkg-subpaths", only_subpaths).contains("src/index.ts"));
+    let bins = r#"{ "bin": { "cli": "src/cli.ts", "tool": "./src/tool.ts" } }"#;
+    let chart = first("pkg-bins", bins);
+    assert!(
+        chart.contains("src/cli.ts") && chart.contains("src/tool.ts"),
+        "{chart}"
+    );
+    let flag_wins = project(
+        "pkg-flag",
+        &[
+            ("package.json", r#"{ "main": "nope.js" }"#),
+            ("src/index.ts", ""),
+        ],
+    );
+    assert!(
+        oxchart(&flag_wins, &["src/index.ts", "-q"])
+            .status
+            .success()
+    );
+}
+
+#[test]
+fn unbuilt_package_main_is_a_missing_entrypoint() {
+    let dir = project(
+        "pkg-unbuilt",
+        &[
+            ("package.json", r#"{ "main": "dist/index.js" }"#),
+            ("src/index.ts", ""),
+        ],
+    );
+    let out = oxchart(&dir, &[]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("entrypoint not found"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
 fn missing_entrypoint_fails() {
     let dir = app("missing-entry");
     let out = oxchart(&dir, &["src/nope.ts"]);
