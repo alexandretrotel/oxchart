@@ -36,7 +36,7 @@ pub enum Error {
         expected: &'static str,
     },
 
-    /// [`render`](crate::render) could not write the graph, for example because the
+    /// [`render`](fn@crate::render) could not write the graph, for example because the
     /// output file or pipe was closed, or merman could not draw it.
     #[cfg(feature = "render")]
     #[error("cannot write the graph")]
