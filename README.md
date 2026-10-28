@@ -68,6 +68,7 @@ oxchart src/index.ts -o graph.svg       # save the picture instead of opening it
 oxchart src/index.ts -o graph.png       # also .jpg and .pdf
 oxchart src/index.ts -o graph.mmd       # Mermaid chart, for GitHub or mermaid.live
 oxchart src/index.ts --format ascii     # draw the chart in the terminal
+oxchart 'src/pages/**/*.tsx'           # start from every matching file
 ```
 
 With `-o`, the file extension picks the format: `.svg`, `.png`, `.jpg`, `.pdf`, or

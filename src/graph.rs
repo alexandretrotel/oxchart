@@ -20,9 +20,13 @@
 //! name, so every run on the same code gives the same graph.
 
 use std::{
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
 };
+
+use globset::GlobBuilder;
+use ignore::WalkBuilder;
 
 use oxc_allocator::Allocator;
 use oxc_span::SourceType;
@@ -182,6 +186,64 @@ pub struct Diagnostic {
     pub line: Option<usize>,
 }
 
+fn is_glob(part: &OsStr) -> bool {
+    part.to_string_lossy().contains(['*', '?', '[', '{'])
+}
+
+/// The files matching an entrypoint glob like `src/pages/**/*.tsx`, sorted. Walks only
+/// the folder before the first wildcard, skipping `.gitignore`d and hidden files and
+/// `node_modules`. Matching nothing is an error: the glob probably has a typo.
+fn glob_files(root: &Path, pattern: &Path) -> Result<Vec<PathBuf>> {
+    let full = root.join(pattern);
+    let base: PathBuf = full
+        .components()
+        .take_while(|c| !is_glob(c.as_os_str()))
+        .collect();
+    let rest = full.strip_prefix(&base).unwrap_or(&full).to_string_lossy();
+    let glob = GlobBuilder::new(&rest)
+        .literal_separator(true)
+        .build()
+        .map_err(|source| Error::Glob {
+            pattern: pattern.display().to_string(),
+            source,
+        })?
+        .compile_matcher();
+    let mut files = Vec::new();
+    // A missing base folder is a typo like any other: `NoMatch` below.
+    let walk = WalkBuilder::new(&base)
+        .require_git(false)
+        .filter_entry(|e| e.file_name() != "node_modules")
+        .build()
+        .filter(|_| base.is_dir());
+    for entry in walk {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(source) if source.io_error().is_some() => {
+                return Err(Error::GlobWalk {
+                    pattern: pattern.to_path_buf(),
+                    source,
+                });
+            }
+            Err(_) => continue,
+        };
+        if entry.file_type().is_some_and(|t| t.is_file())
+            && entry
+                .path()
+                .strip_prefix(&base)
+                .is_ok_and(|p| glob.is_match(p))
+        {
+            files.push(entry.into_path());
+        }
+    }
+    if files.is_empty() {
+        return Err(Error::NoMatch {
+            pattern: pattern.to_path_buf(),
+        });
+    }
+    files.sort();
+    Ok(files)
+}
+
 pub(crate) fn build(config: &Config) -> Result<ModuleGraph> {
     config.validate()?;
     let root = config.root_dir()?;
@@ -189,8 +251,19 @@ pub(crate) fn build(config: &Config) -> Result<ModuleGraph> {
     let resolver = Resolver::new(config);
     let mut graph = Builder::default();
 
-    let mut level = Vec::new();
+    // Globs become the files they match. A path that exists is never a glob, so Next.js
+    // pages like `src/pages/[id].tsx` work as they are.
+    let mut entries = Vec::new();
     for entry in &config.entrypoints {
+        if entry.components().any(|c| is_glob(c.as_os_str())) && !root.join(entry).exists() {
+            entries.extend(glob_files(&root, entry)?);
+        } else {
+            entries.push(entry.clone());
+        }
+    }
+
+    let mut level = Vec::new();
+    for entry in &entries {
         // Found like an import from the root, so `src` finds `src/index.ts`. Always
         // relative (`./src`), never an npm package named `src`.
         let specifier = if entry.is_absolute() {
@@ -736,6 +809,81 @@ mod tests {
             build(&config(&root)),
             Err(Error::Entrypoint { .. })
         ));
+    }
+
+    #[test]
+    fn glob_entrypoints() {
+        let root = project(
+            "graph-entry-glob",
+            &[
+                (".gitignore", "src/pages/ignored.tsx\n"),
+                ("src/pages/b.tsx", ""),
+                ("src/pages/a.tsx", "import './nested/c';"),
+                ("src/pages/nested/c.tsx", ""),
+                ("src/pages/nested/d.ts", ""),
+                ("src/pages/[id].tsx", ""),
+                ("src/pages/ignored.tsx", ""),
+                ("src/pages/.hidden/e.tsx", ""),
+                ("src/pages/node_modules/f.tsx", ""),
+            ],
+        );
+        let entry = |entries: &[&str]| {
+            let mut c = config(&root);
+            c.entrypoints = entries.iter().map(PathBuf::from).collect();
+            c.exclude = vec!["**/nested/c.tsx".into()];
+            build(&c).map(|g| names(&g))
+        };
+        // Sorted; kept even when `exclude` matches; the import of an entry counts once.
+        assert_eq!(
+            entry(&["src/pages/**/*.tsx"]).unwrap(),
+            [
+                "src/pages/[id].tsx",
+                "src/pages/a.tsx",
+                "src/pages/b.tsx",
+                "src/pages/nested/c.tsx",
+            ]
+        );
+        assert_eq!(
+            entry(&["src/pages/*.tsx"]).unwrap(),
+            ["src/pages/[id].tsx", "src/pages/a.tsx", "src/pages/b.tsx"]
+        );
+        // An existing file is not a glob, even with `[...]` in its name.
+        assert_eq!(
+            entry(&["src/pages/[id].tsx"]).unwrap(),
+            ["src/pages/[id].tsx"]
+        );
+        let absolute = root.join("src/pages/nested/*.ts");
+        assert_eq!(
+            entry(&[absolute.to_str().unwrap()]).unwrap(),
+            ["src/pages/nested/d.ts"]
+        );
+        assert!(matches!(
+            entry(&["src/pagez/*.tsx"]),
+            Err(Error::NoMatch { .. })
+        ));
+        assert!(matches!(entry(&["src/[a.ts"]), Err(Error::Glob { .. })));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_folder_in_glob_is_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = project(
+            "graph-entry-glob-unreadable",
+            &[("src/a.ts", ""), ("src/locked/b.ts", "")],
+        );
+        let locked = root.join("src/locked");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let mut c = config(&root);
+        c.entrypoints = vec!["src/**/*.ts".into()];
+        let result = build(&c);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        // Root can read anything, so there is nothing to report.
+        if fs::read_dir(&locked).is_ok() && result.is_ok() {
+            return;
+        }
+        assert!(matches!(result, Err(Error::GlobWalk { .. })), "{result:?}");
     }
 
     #[test]

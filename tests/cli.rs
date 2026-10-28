@@ -188,6 +188,27 @@ fn unbuilt_package_main_is_a_missing_entrypoint() {
 }
 
 #[test]
+fn glob_entrypoints_start_from_every_match() {
+    let dir = project(
+        "glob-entry",
+        &[("src/pages/a.tsx", ""), ("src/pages/b.tsx", "")],
+    );
+    let out = oxchart(&dir, &["src/pages/*.tsx", "-q"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let chart = stdout(&out);
+    assert!(
+        chart.contains("src/pages/a.tsx") && chart.contains("src/pages/b.tsx"),
+        "{chart}"
+    );
+    let out = oxchart(&dir, &["src/pagez/*.tsx"]);
+    assert!(
+        stderr(&out).contains("no file matches entrypoint"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
 fn missing_entrypoint_fails() {
     let dir = app("missing-entry");
     let out = oxchart(&dir, &["src/nope.ts"]);

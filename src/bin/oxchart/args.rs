@@ -30,6 +30,7 @@ Flags win over the file.";
 #[command(version, after_help = EXAMPLES)]
 pub struct Args {
     /// Files or folders to start from, found like imports: src/index.ts, src/index or src.
+    /// Quoted globs start from every match: 'src/pages/**/*.tsx'.
     /// Default: exports["."], main or bin of package.json
     pub entrypoints: Vec<PathBuf>,
 

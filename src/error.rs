@@ -42,6 +42,20 @@ pub enum Error {
     #[error("cannot write the graph")]
     Render(#[source] Box<dyn std::error::Error + Send + Sync>),
 
+    /// An entrypoint glob like `src/pages/**/*.tsx` matches no file. It probably has a
+    /// typo.
+    #[error("no file matches entrypoint {}", pattern.display())]
+    NoMatch { pattern: PathBuf },
+
+    /// A folder searched by an entrypoint glob cannot be read, so some matches may be
+    /// missing.
+    #[error("cannot search for entrypoint {}", pattern.display())]
+    GlobWalk {
+        pattern: PathBuf,
+        #[source]
+        source: ignore::Error,
+    },
+
     /// An entrypoint was not found. Entrypoints are found like relative imports from
     /// the root, so `src/index` and `src` both find `src/index.ts`.
     #[error("entrypoint not found: {}", path.display())]

@@ -39,6 +39,10 @@ pub struct Config {
     ///
     /// Found like relative imports from [`root`](Self::root): `src/index` and `src` both
     /// find `src/index.ts`, and a package folder finds its `package.json` main entry.
+    ///
+    /// A glob like `src/pages/**/*.tsx` starts from every matching file, skipping
+    /// `.gitignore`d and hidden files and `node_modules`. Matches are kept even if
+    /// [`exclude`](Self::exclude) matches them.
     pub entrypoints: Vec<PathBuf>,
     /// The project folder. Relative paths in this config start from here.
     ///
