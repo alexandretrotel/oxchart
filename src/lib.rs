@@ -18,8 +18,8 @@
 //! The defaults in [`Config::new`] work for most projects; change a field only when
 //! you need to.
 //!
-//! [`render`] writes the graph as a Mermaid flowchart, or draws it as a picture: pick a
-//! [`Format`].
+//! `render` writes the graph as a Mermaid flowchart, or draws it as a picture: pick a
+//! `Format`. It needs the `render` feature.
 //!
 //! Reading files and finding imported files is done by [oxc](https://oxc.rs), made by
 //! the VoidZero team.
@@ -28,6 +28,7 @@ mod config;
 mod error;
 mod graph;
 mod parse;
+#[cfg(feature = "render")]
 mod render;
 mod resolve;
 
@@ -37,6 +38,7 @@ pub use config::{
 };
 pub use error::{Error, Result};
 pub use graph::{Diagnostic, Edge, Module, ModuleGraph, ModuleId, ResolveError, Unresolved};
+#[cfg(feature = "render")]
 pub use render::{Format, render};
 
 /// Builds the graph of every file reachable from the entrypoints.

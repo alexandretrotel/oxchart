@@ -38,6 +38,7 @@ pub enum Error {
 
     /// [`render`](crate::render) could not write the graph, for example because the
     /// output file or pipe was closed, or merman could not draw it.
+    #[cfg(feature = "render")]
     #[error("cannot write the graph")]
     Render(#[source] Box<dyn std::error::Error + Send + Sync>),
 

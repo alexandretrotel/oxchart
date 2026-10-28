@@ -115,7 +115,8 @@ for edge in graph.edges() {
 oxchart::render(&graph, oxchart::Format::Mermaid, &mut std::io::stdout())?;
 ```
 
-Each drawing needs the feature of its name: `svg`, `ascii`, `png`, `jpeg` or `pdf`.
+`render` needs the `render` feature, for the Mermaid chart. Each drawing also needs the
+feature of its name, which turns on `render`: `svg`, `ascii`, `png`, `jpeg` or `pdf`.
 
 ## Credits
 
