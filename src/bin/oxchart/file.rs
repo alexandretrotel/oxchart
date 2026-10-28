@@ -15,10 +15,10 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use oxchart::{Config, EdgeKinds};
+use oxchart::{Config, EdgeKinds, Format};
 use serde::Deserialize;
 
-use crate::args::{Format, manual_tsconfig};
+use crate::args::manual_tsconfig;
 
 /// Every setting is optional: a missing one keeps the default.
 #[derive(Debug, Deserialize)]
