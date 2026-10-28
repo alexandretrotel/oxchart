@@ -21,8 +21,9 @@ First release.
   Astro frontmatter, with line numbers kept.
 - Imports resolved with `oxc_resolver`: TypeScript extensions, the nearest
   `tsconfig.json` for path aliases, package `exports` and conditions, Node built-ins
-  and runtime modules (`node:`, `bun:`, `cloudflare:`, `jsr:`...). Monorepo packages
-  count as your own code.
+  and runtime modules with a known scheme (`node:`, `bun:`, `cloudflare:`, `jsr:`,
+  `npm:`, `http(s):`, `data:`, `astro:`, `virtual:`). Other unknown `a:b` imports are
+  reported as not found. Monorepo packages count as your own code.
 - Entrypoints are found like imports (`src`, `src/index` and package folders work),
   and globs like `src/pages/**/*.tsx` start from every matching file.
 - `Config` settings: `include`, `exclude`, `max_depth`, `externals`

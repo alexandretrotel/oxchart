@@ -8,9 +8,10 @@
 //! - From the folder of the file that imports, not from the project root.
 //! - With `Config::resolve`, passed as-is to `oxc_resolver`: extensions, tsconfig
 //!   aliases, package conditions... Only the `import` or `require` condition is added.
-//! - Treating imports with a scheme (`node:`, `bun:`, `cloudflare:`, Deno's `jsr:`,
-//!   `npm:` and `https:`), plus bare `bun`, as provided by the runtime, unless a
-//!   tsconfig alias matches them first.
+//! - Treating imports with a known scheme ([`RUNTIME_SCHEMES`]: `node:`, `bun:`,
+//!   `cloudflare:`, Deno's `jsr:`...), plus bare `bun`, as provided by the runtime,
+//!   unless a tsconfig alias matches them first. Any other `a:b` that is not found is
+//!   reported like a missing file, so a typo is not hidden.
 //! - Following symlinks to the real file. Paths then start like `Config::root_dir`,
 //!   and monorepo packages (symlinks to your own folders) count as your own code.
 //!
@@ -92,7 +93,7 @@ impl Resolver {
             // A bare Node built-in like `fs`, reported as `node:fs`.
             Err(ResolveError::Builtin { resolved, .. }) => Ok(Target::Runtime(resolved)),
             // Not on disk and not a tsconfig alias: `bun:sqlite`, `jsr:@std/path`...
-            Err(ResolveError::NotFound(_)) if has_scheme(specifier) => {
+            Err(ResolveError::NotFound(_)) if is_runtime_scheme(specifier) => {
                 Ok(Target::Runtime(specifier.into()))
             }
             Err(err) => Err(err),
@@ -121,18 +122,27 @@ fn package_name(path: &Path) -> String {
     }
 }
 
-/// `true` if `specifier` starts with a URL scheme like `bun:` or `https:`.
-///
-/// A scheme is a letter, then letters, digits, `+`, `-` or `.`, then `:`. It needs at
-/// least two characters, so a Windows drive like `C:` is not one.
-fn has_scheme(specifier: &str) -> bool {
-    specifier.split_once(':').is_some_and(|(scheme, _)| {
-        scheme.len() > 1
-            && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
-            && scheme
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
-    })
+/// Schemes whose imports the runtime or the bundler provides, not a file. `file:` is
+/// not one: those are paths, found like any other.
+const RUNTIME_SCHEMES: &[&str] = &[
+    "node",
+    "bun",
+    "cloudflare",
+    "jsr",
+    "npm",
+    "http",
+    "https",
+    "data",
+    // Astro's `astro:content`, and Vite plugins' `virtual:pwa-register`.
+    "astro",
+    "virtual",
+];
+
+/// `true` if `specifier` starts with a scheme in [`RUNTIME_SCHEMES`], like `bun:`.
+fn is_runtime_scheme(specifier: &str) -> bool {
+    specifier
+        .split_once(':')
+        .is_some_and(|(scheme, _)| RUNTIME_SCHEMES.contains(&scheme))
 }
 
 #[cfg(test)]
@@ -319,6 +329,14 @@ pub(crate) mod tests {
             r.resolve(&from, "https://deno.land/x/a.ts", false),
             runtime("https://deno.land/x/a.ts")
         );
+        assert_eq!(
+            r.resolve(&from, "astro:content", false),
+            runtime("astro:content")
+        );
+        assert_eq!(
+            r.resolve(&from, "virtual:pwa-register", false),
+            runtime("virtual:pwa-register")
+        );
     }
 
     #[test]
@@ -349,6 +367,9 @@ pub(crate) mod tests {
         assert!(r.resolve(&from, "C:/nope.ts", false).is_err());
         assert!(r.resolve(&from, "./a:b", false).is_err());
         assert!(r.resolve(&from, "@scope/a:b", false).is_err());
+        // Unknown schemes are reported, so a typo or a broken alias is not hidden.
+        assert!(r.resolve(&from, "foo:bar", false).is_err());
+        assert!(r.resolve(&from, "src:utils", false).is_err());
     }
 
     #[cfg(unix)]
