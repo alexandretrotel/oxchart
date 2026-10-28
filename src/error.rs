@@ -42,13 +42,13 @@ pub enum Error {
     #[error("cannot write the graph")]
     Render(#[source] Box<dyn std::error::Error + Send + Sync>),
 
-    /// An entrypoint does not exist. Entrypoints are file paths: `src/index` does not
-    /// find `src/index.ts`.
+    /// An entrypoint was not found. Entrypoints are found like relative imports from
+    /// the root, so `src/index` and `src` both find `src/index.ts`.
     #[error("entrypoint not found: {}", path.display())]
     Entrypoint {
         path: PathBuf,
         #[source]
-        source: io::Error,
+        source: crate::ResolveError,
     },
 }
 

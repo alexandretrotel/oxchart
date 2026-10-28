@@ -37,7 +37,8 @@ pub type TsconfigReferences = oxc_resolver::TsconfigReferences;
 pub struct Config {
     /// The files to start from, usually your app's main file.
     ///
-    /// Relative paths start from [`root`](Self::root).
+    /// Found like relative imports from [`root`](Self::root): `src/index` and `src` both
+    /// find `src/index.ts`, and a package folder finds its `package.json` main entry.
     pub entrypoints: Vec<PathBuf>,
     /// The project folder. Relative paths in this config start from here.
     ///

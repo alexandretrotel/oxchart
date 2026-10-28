@@ -191,13 +191,22 @@ pub(crate) fn build(config: &Config) -> Result<ModuleGraph> {
 
     let mut level = Vec::new();
     for entry in &config.entrypoints {
-        let path = root
-            .join(entry)
-            .canonicalize()
-            .map_err(|source| Error::Entrypoint {
-                path: entry.clone(),
-                source,
-            })?;
+        // Found like an import from the root, so `src` finds `src/index.ts`. Always
+        // relative (`./src`), never an npm package named `src`.
+        let specifier = if entry.is_absolute() {
+            entry.to_string_lossy().into_owned()
+        } else {
+            format!("./{}", entry.display())
+        };
+        let path = match resolver.resolve(&root.join("x"), &specifier, false) {
+            Ok(Target::Local(path) | Target::Package { path, .. }) => Ok(path),
+            Ok(Target::Runtime(_)) => Err(ResolveError::NotFound(specifier)),
+            Err(e) => Err(e),
+        }
+        .map_err(|source| Error::Entrypoint {
+            path: entry.clone(),
+            source,
+        })?;
         if let (id, true) = graph.add(Module::File(path.clone())) {
             level.push((id, path));
         }
@@ -727,5 +736,37 @@ mod tests {
             build(&config(&root)),
             Err(Error::Entrypoint { .. })
         ));
+    }
+
+    #[test]
+    fn entrypoints_are_found_like_imports() {
+        let root = project(
+            "graph-entry-lookup",
+            &[
+                ("src/index.ts", ""),
+                ("packages/ui/package.json", r#"{ "main": "./lib/main.ts" }"#),
+                ("packages/ui/lib/main.ts", ""),
+                ("node_modules/pkg/index.js", ""),
+            ],
+        );
+        let entry = |entry: &Path| {
+            let mut c = config(&root);
+            c.entrypoints = vec![entry.into()];
+            names(&build(&c).unwrap())
+        };
+        assert_eq!(entry("src/index.ts".as_ref()), ["src/index.ts"]);
+        assert_eq!(entry("src/index".as_ref()), ["src/index.ts"]);
+        assert_eq!(entry("src".as_ref()), ["src/index.ts"]);
+        assert_eq!(entry("packages/ui".as_ref()), ["packages/ui/lib/main.ts"]);
+        assert_eq!(entry(&root.join("src")), ["src/index.ts"]);
+        // Inside `node_modules`, still a file to open, not a package.
+        let g = {
+            let mut c = config(&root);
+            c.entrypoints = vec!["node_modules/pkg".into()];
+            build(&c).unwrap()
+        };
+        assert!(
+            matches!(&g.modules()[0], Module::File(p) if p.ends_with("node_modules/pkg/index.js"))
+        );
     }
 }
