@@ -51,10 +51,10 @@ fn prints_the_graph_and_warnings_separately() {
     let dir = app("graph");
     let out = oxchart(&dir, &["src/index.ts"]);
     assert!(out.status.success(), "{}", stderr(&out));
-    assert_eq!(
-        stdout(&out),
-        "src/a.ts -> src/b.ts (re-export)\nsrc/index.ts -> src/a.ts (static)\n"
-    );
+    let chart = stdout(&out);
+    assert!(chart.starts_with("flowchart LR\n"), "{chart}");
+    assert!(chart.contains("  m0 -->|re-export| m1\n"), "{chart}");
+    assert!(chart.contains("  m2 -->|static| m0\n"), "{chart}");
     let err = stderr(&out);
     assert!(
         err.contains("warning: src/index.ts: cannot find `./missing`"),
@@ -74,11 +74,11 @@ fn quiet_prints_only_the_graph() {
 #[test]
 fn output_file() {
     let dir = app("output");
-    let out = oxchart(&dir, &["src/index.ts", "-o", "graph.txt", "-q"]);
+    let out = oxchart(&dir, &["src/index.ts", "-o", "graph.mmd", "-q"]);
     assert!(out.status.success());
     assert_eq!(stdout(&out), "");
-    let written = fs::read_to_string(dir.join("graph.txt")).unwrap();
-    assert!(written.contains("src/index.ts -> src/a.ts (static)"));
+    let written = fs::read_to_string(dir.join("graph.mmd")).unwrap();
+    assert!(written.contains("  m2 -->|static| m0\n"), "{written}");
 }
 
 #[test]
@@ -93,14 +93,14 @@ fn settings_file_is_found_from_a_subfolder_and_flags_win() {
 
     let out = oxchart(&sub, &["-q"]);
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("src/index.ts -> react (static)"));
+    assert!(stdout(&out).contains("([\"react\"]):::package"));
 
     let out = oxchart(&sub, &["-q", "--externals", "hide"]);
     assert!(!stdout(&out).contains("react"));
 
     let out = oxchart(&sub, &["-q", "--no-config", "index.ts"]);
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("index.ts -> a.ts (static)"));
+    assert!(stdout(&out).contains("[\"index.ts\"]"));
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn bad_flag_value_is_a_usage_error() {
 fn modules_without_imports_are_still_listed() {
     let dir = project("alone", &[("index.ts", "")]);
     let out = oxchart(&dir, &["index.ts", "-q"]);
-    assert_eq!(stdout(&out), "index.ts\n");
+    assert!(stdout(&out).contains("  m0[\"index.ts\"]:::file\n"));
 }
 
 #[test]
@@ -162,8 +162,8 @@ fn mermaid_format_from_flag_or_settings_file() {
     fs::write(dir.join("oxchart.toml"), "format = \"mermaid\"\n").unwrap();
     let out = oxchart(&dir, &["src/index.ts", "-q"]);
     assert!(stdout(&out).starts_with("flowchart LR\n"));
-    let out = oxchart(&dir, &["src/index.ts", "-q", "--format", "text"]);
-    assert!(stdout(&out).starts_with("src/a.ts -> src/b.ts"));
+    let out = oxchart(&dir, &["src/index.ts", "-q", "--format", "svg"]);
+    assert!(stdout(&out).starts_with("<svg"));
 }
 
 #[test]
@@ -172,7 +172,8 @@ fn output_extension_picks_the_format() {
     for (file, start) in [
         ("graph.svg", "<svg"),
         ("graph.mmd", "flowchart LR"),
-        ("graph.txt", "src/a.ts -> src/b.ts"),
+        ("graph.mermaid", "flowchart LR"),
+        ("graph.txt", "┌"),
     ] {
         let out = oxchart(&dir, &["src/index.ts", "-q", "-o", file]);
         assert!(out.status.success(), "{}", stderr(&out));
@@ -181,20 +182,27 @@ fn output_extension_picks_the_format() {
     }
     let out = oxchart(
         &dir,
-        &["src/index.ts", "-q", "-o", "graph.svg", "--format", "text"],
+        &[
+            "src/index.ts",
+            "-q",
+            "-o",
+            "graph.svg",
+            "--format",
+            "mermaid",
+        ],
     );
     assert!(out.status.success());
     assert!(
         fs::read_to_string(dir.join("graph.svg"))
             .unwrap()
-            .starts_with("src/")
+            .starts_with("flowchart LR")
     );
 }
 
 #[test]
-fn piped_output_is_text_and_svg_can_be_asked_for() {
+fn piped_output_is_mermaid_and_svg_can_be_asked_for() {
     let dir = app("piped");
-    assert!(stdout(&oxchart(&dir, &["src/index.ts", "-q"])).starts_with("src/a.ts"));
+    assert!(stdout(&oxchart(&dir, &["src/index.ts", "-q"])).starts_with("flowchart LR"));
     let out = oxchart(&dir, &["src/index.ts", "-q", "--format", "svg"]);
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(stdout(&out).starts_with("<svg"));
