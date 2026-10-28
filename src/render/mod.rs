@@ -79,7 +79,7 @@ impl Format {
 /// flowchart LR
 ///   m0["src/a.ts"]:::file
 ///   m1(["react"]):::package
-///   m0 -->|static| m1
+///   m0 ==>|static| m1
 ///   classDef file fill:#E8F1FA,stroke:#0072B2,color:#1B1B1B
 ///   classDef package fill:#FFF4DE,stroke:#E69F00,color:#1B1B1B
 /// ```
@@ -88,10 +88,9 @@ impl Format {
 /// with double sides. There is no legend: files show a path, packages a bare name and
 /// runtime modules a prefix like `node:`, so the colors only help the eye.
 ///
-/// Each arrow is labelled with its kinds of import and colored by the most important
-/// one: black for `static`, blue for `re-export`, red for `require`, green for
-/// `dynamic` and grey for `type`. `dynamic` and `type` arrows are dashed, because they
-/// do not load when the app starts.
+/// Each arrow is labelled with its kinds of import and drawn after the most important
+/// one: thick and black for `static`, black for `re-export`, red for `require`, green
+/// for `dynamic`, and dashed grey for `type`, which is gone once compiled.
 ///
 /// The Mermaid flowchart is written piece by piece, so even a big one is never held in
 /// memory as a whole. Drawings are made whole first. Big graphs take longer to lay out
@@ -166,10 +165,9 @@ mod tests {
              \x20 m4([\"react\"]):::package\n\
              \x20 m5[[\"node:fs\"]]:::runtime\n\
              \x20 m0 -->|type, re-export| m1\n\
-             \x20 m2 -->|static| m0\n\
-             \x20 m2 -->|static| m4\n\
-             \x20 m2 -->|static| m5\n\
-             \x20 linkStyle 0 stroke:#0072B2,color:#0072B2\n\
+             \x20 m2 ==>|static| m0\n\
+             \x20 m2 ==>|static| m4\n\
+             \x20 m2 ==>|static| m5\n\
              \x20 classDef file fill:#E8F1FA,stroke:#0072B2,color:#1B1B1B\n\
              \x20 classDef package fill:#FFF4DE,stroke:#E69F00,color:#1B1B1B\n\
              \x20 classDef runtime fill:#EEEEEE,stroke:#777777,color:#1B1B1B\n"
@@ -196,8 +194,8 @@ mod tests {
         config.root = Some(root);
         config.edge_kinds = K::ALL;
         let out = chart(&crate::build_graph(&config).unwrap());
-        assert!(out.contains("  m4 -->|static| m0\n"), "{out}");
-        assert!(out.contains("  m4 -.->|dynamic| m1\n"), "{out}");
+        assert!(out.contains("  m4 ==>|static| m0\n"), "{out}");
+        assert!(out.contains("  m4 -->|dynamic| m1\n"), "{out}");
         assert!(out.contains("  m4 -.->|type| m2\n"), "{out}");
         assert!(out.contains("  m4 -->|require| m3\n"), "{out}");
         assert!(

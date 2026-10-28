@@ -9,7 +9,7 @@ repository:
 ```console
 $ oxchart src/index.ts
 opened /var/folders/.../T/oxchart-zustand.svg
-3 modules, 3 imports, 0 not found, 0 problems in files, in 3.49ms (build 694.96µs, render 2.73ms)
+3 modules, 3 imports, 0 not found, 0 problems in files, in 3.15ms (build 702.50µs, render 2.38ms)
 ```
 
 The summary goes to stderr. It ends with the time taken: to build the graph, then to
@@ -22,7 +22,7 @@ Here is all of zustand v5.0.16, with its packages:
 ```console
 $ oxchart src/index.ts src/vanilla.ts src/middleware.ts src/middleware/immer.ts \
   src/shallow.ts src/traditional.ts --externals leaf -o zustand.svg
-18 modules, 18 imports, 0 not found, 0 problems in files, in 10.94ms (build 2.84ms, render 7.73ms)
+18 modules, 18 imports, 0 not found, 0 problems in files, in 10.27ms (build 2.64ms, render 7.41ms)
 ```
 
 When the output is piped, it writes the [Mermaid](https://mermaid.js.org) chart
@@ -34,7 +34,7 @@ flowchart LR
   m0["src/index.ts"]:::file
   m1["src/react.ts"]:::file
   m2["src/vanilla.ts"]:::file
-3 modules, 3 imports, 0 not found, 0 problems in files, in 615.88µs (build 544.50µs, render 18.25µs)
+3 modules, 3 imports, 0 not found, 0 problems in files, in 560.42µs (build 491.04µs, render 9.04µs)
 ```
 
 Or draw it right in the terminal:
@@ -43,12 +43,12 @@ Or draw it right in the terminal:
 $ oxchart src/index.ts --format ascii
 ┌──────────────┐              ┌──────────────┐              ┌────────────────┐
 │              │              │              │              │                │
-│ src/index.ts ├──re-export──►│ src/react.ts ├───static────►│ src/vanilla.ts │
+│ src/index.ts ├──re-export──►│ src/react.ts ┝━━━static━━━━►│ src/vanilla.ts │
 │              │              │              │              │                │
 └──────────────┘              └──────────────┘              └────────────────┘
         │                                                            ▲
         └─────────────────────────re-export──────────────────────────┘
-3 modules, 3 imports, 0 not found, 0 problems in files, in 3.62ms (build 587.83µs, render 2.98ms)
+3 modules, 3 imports, 0 not found, 0 problems in files, in 3.75ms (build 656.92µs, render 3.05ms)
 ```
 
 ## Install

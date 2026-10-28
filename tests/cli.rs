@@ -54,7 +54,7 @@ fn prints_the_graph_and_warnings_separately() {
     let chart = stdout(&out);
     assert!(chart.starts_with("flowchart LR\n"), "{chart}");
     assert!(chart.contains("  m0 -->|re-export| m1\n"), "{chart}");
-    assert!(chart.contains("  m2 -->|static| m0\n"), "{chart}");
+    assert!(chart.contains("  m2 ==>|static| m0\n"), "{chart}");
     let err = stderr(&out);
     assert!(
         err.contains("warning: src/index.ts: cannot find `./missing`"),
@@ -78,7 +78,7 @@ fn output_file() {
     assert!(out.status.success());
     assert_eq!(stdout(&out), "");
     let written = fs::read_to_string(dir.join("graph.mmd")).unwrap();
-    assert!(written.contains("  m2 -->|static| m0\n"), "{written}");
+    assert!(written.contains("  m2 ==>|static| m0\n"), "{written}");
 }
 
 #[test]
