@@ -2,15 +2,28 @@
 //!
 //! The graph itself is written by a renderer from the library.
 
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    time::Duration,
+};
 
 use oxchart::ModuleGraph;
 
 /// Above this many modules, a chart is hard to read.
 const LARGE: usize = 500;
 
+/// How long the run took, shown in the summary.
+pub struct Times {
+    /// The whole command, settings included.
+    pub total: Duration,
+    /// Building the graph.
+    pub build: Duration,
+    /// Writing the graph, without opening it.
+    pub render: Duration,
+}
+
 /// Imports that lead nowhere, problems inside files, and a one-line summary.
-pub fn write_problems(graph: &ModuleGraph, out: &mut impl Write) -> io::Result<()> {
+pub fn write_problems(graph: &ModuleGraph, times: &Times, out: &mut impl Write) -> io::Result<()> {
     for unresolved in graph.unresolved() {
         writeln!(
             out,
@@ -35,9 +48,13 @@ pub fn write_problems(graph: &ModuleGraph, out: &mut impl Write) -> io::Result<(
     }
     writeln!(
         out,
-        "{modules} modules, {} imports, {} not found, {} problems in files",
+        "{modules} modules, {} imports, {} not found, {} problems in files, \
+         in {:.2?} (build {:.2?}, render {:.2?})",
         graph.edges().len(),
         graph.unresolved().len(),
-        graph.diagnostics().len()
+        graph.diagnostics().len(),
+        times.total,
+        times.build,
+        times.render,
     )
 }
