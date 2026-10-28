@@ -222,6 +222,13 @@ pub(crate) fn build(config: &Config) -> Result<ModuleGraph> {
                 let target = match target {
                     Ok(target) => target,
                     Err(reason) => {
+                        if graph
+                            .unresolved
+                            .last()
+                            .is_some_and(|u| u.from == file.from && u.specifier == specifier)
+                        {
+                            continue;
+                        }
                         graph.unresolved.push(Unresolved {
                             from: file.from,
                             specifier,
@@ -643,7 +650,7 @@ mod tests {
             &[
                 (
                     "src/index.ts",
-                    "import './missing';\nimport './broken';\nrequire(name);",
+                    "import './missing';\nimport './broken';\nrequire(name);\nrequire('./missing');",
                 ),
                 ("src/broken.ts", "\n\nconst = ;"),
             ],
