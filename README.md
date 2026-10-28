@@ -22,12 +22,14 @@ oxchart src/index.ts src/vanilla.ts src/middleware.ts src/middleware/immer.ts \
   src/shallow.ts src/traditional.ts --externals leaf -o zustand.svg
 ```
 
-When the output is piped, it writes one line per import instead, so scripts keep
-working:
+When the output is piped, it writes the [Mermaid](https://mermaid.js.org) chart
+instead, to paste on GitHub or in [mermaid.live](https://mermaid.live):
 
 ```console
-$ oxchart src/index.ts | grep re-export
-src/a.ts -> src/b.ts (re-export)
+$ oxchart src/index.ts | head -3
+flowchart LR
+  m0["src/a.ts"]:::file
+  m1["src/b.ts"]:::file
 ```
 
 ## Install
@@ -49,8 +51,9 @@ oxchart src/index.ts -o graph.mmd       # Mermaid chart, for GitHub or mermaid.l
 oxchart src/index.ts --format ascii     # draw the chart in the terminal
 ```
 
-With `-o`, the file extension picks the format: `.svg`, `.png`, `.jpg`, `.pdf`, `.mmd`
-or `.txt`. `--format svg|png|jpeg|pdf|mermaid|ascii|text` always wins.
+With `-o`, the file extension picks the format: `.svg`, `.png`, `.jpg`, `.pdf`, or
+`.txt` for the text drawing. Anything else, like `.mmd`, is the Mermaid chart.
+`--format svg|png|jpeg|pdf|mermaid|ascii` always wins.
 
 Run `oxchart --help` for every option.
 
@@ -88,14 +91,20 @@ let graph = oxchart::build_graph(&config)?;
 for edge in graph.edges() {
     println!("{:?} -> {:?}", graph.module(edge.from), graph.module(edge.to));
 }
+
+// The Mermaid chart, or a drawing of it like `Format::Svg`.
+oxchart::render(&graph, oxchart::Format::Mermaid, &mut std::io::stdout())?;
 ```
+
+Each drawing needs the feature of its name: `svg`, `ascii`, `png`, `jpeg` or `pdf`.
 
 ## Credits
 
 - [oxc](https://oxc.rs) by the [VoidZero](https://voidzero.dev) team: `oxc_parser`
   reads the files and `oxc_resolver` finds the imported files. oxchart is a thin layer
   on their work.
-- [merman](https://crates.io/crates/merman): draws the Mermaid chart as an SVG picture.
+- [merman](https://crates.io/crates/merman): oxchart writes a Mermaid chart, and
+  merman draws it in every other format: SVG, PNG, JPEG, PDF and text.
 
 ## License
 
