@@ -59,7 +59,7 @@ By default oxchart:
 - follows `import`, `export ... from` and `require()`, but not `import()` or `import type`
 - hides npm packages and runtime modules (`node:fs`, `bun:sqlite`...)
 - uses the nearest `tsconfig.json` of each file for path aliases like `@/utils`
-- picks the Node build of packages (add `--condition browser` for a browser app)
+- picks the Node build of packages (add `--condition-names browser` for a browser app)
 
 Missing imports and syntax errors are warnings: the graph is still built.
 
