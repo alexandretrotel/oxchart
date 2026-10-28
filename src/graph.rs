@@ -20,7 +20,6 @@
 //! name, so every run on the same code gives the same graph.
 
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -28,6 +27,7 @@ use std::{
 use oxc_allocator::Allocator;
 use oxc_span::SourceType;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 
 use crate::{
     config::{Config, EdgeKinds, Externals},
@@ -331,8 +331,8 @@ fn open(
 #[derive(Default)]
 struct Builder {
     modules: Vec<Module>,
-    ids: HashMap<Module, ModuleId>,
-    edges: HashMap<(ModuleId, ModuleId), EdgeKinds>,
+    ids: FxHashMap<Module, ModuleId>,
+    edges: FxHashMap<(ModuleId, ModuleId), EdgeKinds>,
     unresolved: Vec<Unresolved>,
     diagnostics: Vec<Diagnostic>,
 }
